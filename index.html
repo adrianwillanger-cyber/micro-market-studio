@@ -58,6 +58,9 @@ tr.total td { border-top:2px solid var(--ink); border-bottom:none; font-weight:7
 .btn:hover, .btn:focus-visible { background:var(--red); }
 .contact { margin:26px 0 0; padding:22px 0 0; border-top:1px solid var(--rule); }
 .contact .name { font:700 22px/1.2 "Playfair Display", Georgia, serif; }
+.reach { display:flex; flex-wrap:wrap; gap:6px 28px; margin-top:10px; font-weight:600; }
+.reach a { text-decoration:underline; text-decoration-color:var(--red); }
+.reach a:hover, .reach a:focus-visible { color:var(--red); }
 footer { margin:44px 0 0; padding:18px 0 40px; border-top:3px double var(--ink); color:var(--muted); font-size:14px; line-height:1.5; }
 @media (max-width:640px) {
   body { font-size:17px; }
@@ -178,6 +181,7 @@ footer { margin:44px 0 0; padding:18px 0 40px; border-top:3px double var(--ink);
     <div class="contact">
       <div class="name">Adrian Willanger</div>
       <div>Broker, Kelly Right</div>
+      <div class="reach"><a href="tel:+12069097536">206 909 7536</a><a href="mailto:adrian@adrianwillanger.com">Adrian@AdrianWillanger.com</a></div>
       <p class="note" style="margin-top:8px">Want to know what these numbers mean for your home or your search? Reach out and I will walk you through your neighborhood.</p>
     </div>
   </article>
