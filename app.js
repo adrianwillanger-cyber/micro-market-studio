@@ -829,7 +829,7 @@ function nbLine(n) {
   const m = mark(n); return `${n.name}${m ? ' ' + m : ''}: ${n.sold} sold, ${n.active} active, ${n.pending} pending; ${Number.isFinite(n.soldPpsf) ? d$(n.soldPpsf) + ' per sq ft sold' : 'no sales'}${Number.isFinite(n.soldDom) ? ', ' + num(n.soldDom) + ' days on market' : ''}${n.sold && n.thin && n.name.indexOf(' total') < 0 ? ' (not ranked, under ' + AR.minRank + ' sales)' : ''}`;
 }
 function articleText(M, C) {
-  return [C.headline, C.subhead, `${AR.byline} | ${AR.city} | ${fmtDate(S.asOf)}`, C.p1, '[Insert Chart 1]', C.fig1, ...C.notes1, '[Insert Chart 2]', C.fig2, ...C.notes2, C.p2, '[Insert Chart 3]', C.fig3, C.p3,
+  return [C.headline, C.subhead, `${AR.byline} | ${AR.city} | ${fmtDate(S.asOf)}`, C.p1, C.fig1, ...C.notes1, C.fig2, ...C.notes2, C.p2, C.fig3, C.p3,
     'Neighborhood by neighborhood', ...M.nbs.map(nbLine), nbLine(M.zip), sourceLine(M)].join('\n\n');
 }
 
