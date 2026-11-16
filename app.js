@@ -709,13 +709,12 @@ function setTab(t) {
 }
 
 // ---------- one-ZIP area report ----------
-const AR_KEY = 'mms-area-settings-v1';
 const AR = Object.assign({
   window: 90, lotFilter: true, minLot: 3000, city: 'Seattle, WA', issue: 'No. 1', byline: 'By Adrian Willanger',
   name: 'Adrian Willanger', role: 'Broker', firm: 'Kelly Right', phone: '', email: '', web: '', license: '',
   source: 'NWMLS via Realty Toolkit'
-}, (() => { try { return JSON.parse(localStorage.getItem(AR_KEY) || '{}'); } catch { return {}; } })());
-const arSave = () => { try { localStorage.setItem(AR_KEY, JSON.stringify(AR)); } catch {} };
+});
+const arSave = () => {};
 const INK = '#1A1815', MUTED = '#4A4842', RED = '#8B1E1E', RULE = '#CFCBC2';
 const words = (t) => t.trim().split(/\s+/).filter(Boolean).length;
 const d$ = (x) => Number.isFinite(x) ? '$' + Math.round(x).toLocaleString('en-US') : 'n/a';
@@ -924,9 +923,16 @@ function buildPrint(M, C) {
 }
 
 // ---------- persistence ----------
-const ST_KEY = 'mms-state-v1';
-function saveState() { try { localStorage.setItem(ST_KEY, JSON.stringify({ queue: S.queue, memory: S.memory })); } catch {} }
-try { const st = JSON.parse(localStorage.getItem(ST_KEY) || 'null'); if (st) { S.queue = st.queue || []; S.memory = st.memory || S.memory; } } catch {}
+function saveState() {}
+function exportSession() {
+  dl(new Blob([JSON.stringify({ app: 'micro-market-studio', version: 1, saved: new Date().toISOString(), settings: AR, queue: S.queue, memory: S.memory }, null, 2)], { type: 'application/json' }), `micro-market-studio-session-${isoDay(new Date())}.json`);
+  toast('Session file saved. Load it next time to restore your queue, memory and report settings.');
+}
+function importSession(f) {
+  const r = new FileReader();
+  r.onload = () => { try { const j = JSON.parse(String(r.result)); if (j.app !== 'micro-market-studio') throw 0; Object.assign(AR, j.settings || {}); S.queue = j.queue || []; S.memory = j.memory || S.memory; render(); toast(`Session restored: ${S.queue.length} queued, ${S.memory.length} in memory.`); } catch { toast('That is not a Micro Market Studio session file.'); } };
+  r.readAsText(f);
+}
 
 
 // ---------- events ----------
@@ -974,5 +980,7 @@ async function loadSample() {
   catch (e) { showError('Could not load the sample file.'); }
 }
 $('#load-sample').onclick = loadSample;
+$('#save-session').onclick = exportSession;
+$('#session-file').onchange = (e) => { const f = e.target.files[0]; if (f) importSession(f); e.target.value = ''; };
 loadSample();
 })();
