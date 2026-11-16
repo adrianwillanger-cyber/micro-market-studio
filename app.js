@@ -52,9 +52,10 @@ const COLS = {
   ld: ['listing date', 'list date', 'on market date'],
   pd: ['pending date', 'under contract date', 'contract date'],
   sd: ['selling date', 'sold date', 'close date', 'closing date'],
-  dom: ['dom', 'days on market', 'cdom'],
+  dom: ['dom', 'da', 'days on market', 'cdom', 'cda'],
   sq: ['square footage', 'sqft', 'sq ft', 'living area', 'approx sqft', 'square feet'],
-  type: ['property type', 'prop type', 'type'],
+  type: ['property type', 'type of property', 'prop type', 'type'],
+  city: ['city'], stnum: ['street number'], stdir: ['street direction'], stname: ['street name'], stsuf: ['street suffix'], stpost: ['street post direction'], unit: ['unit'],
   addr: ['address', 'street address', 'full address'],
   mls: ['listing #', 'mls #', 'mls number', 'listing id', 'ml#', 'listing number'],
   lot: ['lot square footage', 'lot size', 'lot sqft', 'lot sq ft', 'lot size sqft', 'lot size (sq ft)', 'lot area'],
@@ -110,8 +111,8 @@ function ingest(text, name, isSample) {
     if (!status) { ignored++; return; }
     const sq = toNum(get(r, 'sq'));
     const rec = {
-      i, mls: get(r, 'mls') || 'Row ' + (i + 2), addr: get(r, 'addr') || '(no address)', status, rawStatus: get(r, 'status'),
-      zip: String(get(r, 'zip') || '').trim().slice(0, 5) || 'n/a', nb: String(get(r, 'community') || 'Unassigned').trim() || 'Unassigned',
+      i, mls: get(r, 'mls') || 'Row ' + (i + 2), addr: get(r, 'addr') || ['stnum', 'stdir', 'stname', 'stsuf', 'stpost'].map((k) => String(get(r, k) || '').trim()).filter(Boolean).join(' ') + (String(get(r, 'unit') || '').trim() ? ' #' + String(get(r, 'unit')).trim() : '') || '(no address)', status, rawStatus: get(r, 'status'),
+      zip: String(get(r, 'zip') || '').trim().slice(0, 5) || 'n/a', nb: (() => { const c = String(get(r, 'community') || '').trim(), city = String(get(r, 'city') || '').trim(); return !c || (city && c.toLowerCase() === city.toLowerCase()) ? 'Unassigned' : c; })(),
       type: normType(get(r, 'type')), list: toNum(get(r, 'list')), orig: toNum(get(r, 'orig')), sold: toNum(get(r, 'sold')),
       ld: toDate(get(r, 'ld')), pd: toDate(get(r, 'pd')), sd: toDate(get(r, 'sd')), dom: toNum(get(r, 'dom')), sq,
       lot: toNum(get(r, 'lot')), bd: toNum(get(r, 'bd')), ba: toNum(get(r, 'ba')), yb: toNum(get(r, 'yb'))
@@ -710,7 +711,7 @@ function setTab(t) {
 
 // ---------- one-ZIP area report ----------
 const AR = Object.assign({
-  window: 90, lotFilter: true, minLot: 3000, city: 'Seattle, WA', issue: 'No. 1', byline: 'By Adrian Willanger',
+  window: 90, minRank: 6, lotFilter: true, minLot: 3000, city: 'Seattle, WA', issue: 'No. 1', byline: 'By Adrian Willanger',
   name: 'Adrian Willanger', role: 'Broker', firm: 'Kelly Right', phone: '', email: '', web: '', license: '',
   source: 'NWMLS via Realty Toolkit'
 });
@@ -739,48 +740,57 @@ function areaMetrics(rs) {
     return { name, sold: sold.length, active: act.length, pending: pen.length,
       soldPpsf: median(sold.map((r) => r.ppsf)), actPpsf: median(act.map((r) => r.sq > 0 ? r.list / r.sq : NaN)),
       soldDom: median(sold.map((r) => r.dom)), actDom: median(act.map((r) => r.dom)), medSold: median(sold.map((r) => r.sold)),
-      small: sold.length < 3, recs: sub };
+      small: sold.length < 3, thin: sold.length < AR.minRank, recs: sub };
   };
   const nbs = [...new Set(k.map((r) => r.nb))].map((nb) => stat(k.filter((r) => r.nb === nb), nb))
     .sort((a, b) => (b.sold + b.active + b.pending) - (a.sold + a.active + a.pending));
   const zip = stat(k, S.zip + ' total');
-  const full = nbs.filter((n) => !n.small && Number.isFinite(n.soldPpsf));
+  const full = nbs.filter((n) => !n.thin && Number.isFinite(n.soldPpsf));
   const byP = full.slice().sort((a, b) => b.soldPpsf - a.soldPpsf);
   const byD = full.slice().sort((a, b) => b.soldDom - a.soldDom);
-  const busiest = nbs.slice().sort((a, b) => b.pending - a.pending || b.active - a.active)[0];
+  const busiest = nbs.filter((n) => n.name !== 'Unassigned').slice().sort((a, b) => b.pending - a.pending || b.active - a.active)[0];
   const soldDates = k.filter((r) => r.status === 'Sold' && r.sd).map((r) => r.sd.getTime());
   return { nbs, zip, top: byP[0], low: byP[byP.length - 1], slow: byD[0], fast: byD[byD.length - 1], busiest, full,
     audit: { rows: rs.length, kept: k.length, belowLot: A.belowLot, noLot: A.noLot, from: soldDates.length ? new Date(Math.min(...soldDates)) : null } };
 }
 
+function spanPhrase(M) {
+  const f = M.audit.from; if (!f) return `in the last ${AR.window} days`;
+  const span = Math.round((S.asOf - f) / DAY);
+  return span < AR.window - 3 ? `since ${shortDate(f)}` : `in the last ${AR.window} days`;
+}
 function areaCopy(M) {
-  const Z = S.zip, z = M.zip, w = AR.window;
+  const Z = S.zip, z = M.zip, w = AR.window, WP = spanPhrase(M), WPc = WP.startsWith('since') ? 'sales ' + WP : WP.replace(/^in the /, '');
   const t = M.top, l = M.low, s = M.slow, f = M.fast, b = M.busiest;
-  const ratio = z.active ? (z.pending / z.active).toFixed(1) : 'n/a';
-  const headline = t ? `${Z} Neighborhood Market Update: ${t.name} Leads at ${d$(t.soldPpsf)} a Square Foot` : `${Z} Neighborhood Market Update`;
-  const subhead = `${z.sold} sales, ${num(z.soldDom)} median days on market and ${z.active} active listings across ${M.nbs.length} neighborhoods in the last ${w} days`;
-  const p1 = t && l && t !== l
-    ? `${Z} closed ${z.sold} home sales in the last ${w} days at a median ${d$(z.soldPpsf)} per square foot, with homes selling in a median ${num(z.soldDom)} days on market. Among neighborhoods with at least three sales, ${t.name} led on price at ${d$(t.soldPpsf)} per square foot, while ${l.name} came in at ${d$(l.soldPpsf)}. That gap is the first thing a seller should price against.`
-    : `${Z} closed ${z.sold} home sales in the last ${w} days at a median ${d$(z.soldPpsf)} per square foot, with homes selling in a median ${num(z.soldDom)} days on market. Too few neighborhoods have three or more sales to rank them on price yet, so treat the ZIP figure as the anchor and each neighborhood figure as directional until more sales close.`;
-  const p2 = `Supply tells the next chapter. ${Z} has ${z.active} active listings and ${z.pending} pending, or ${ratio} pending for every active home. ${b ? `${b.name} carries the busiest pipeline with ${b.pending} pending and ${b.active} active.` : ''} ${s ? `${s.name} is the outlier on time, with sold homes taking a median ${num(s.soldDom)} days against ${num(z.soldDom)} for the ZIP.` : ''}`.replace(/\s+/g, ' ').trim();
+  const ranked = M.full.length >= 2;
+  const NW = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+  const nw = (n) => NW[n] || String(n);
+  const minW = nw(AR.minRank);
+  const ratioTxt = !z.active ? 'with no active listings to compare' : !z.pending ? 'with nothing pending' : z.pending >= z.active ? `or ${(z.pending / z.active).toFixed(1)} pending for every active home` : `or about one pending for every ${Math.round(z.active / z.pending)} active homes`;
+  const headline = t && M.full.length >= 2 ? `${Z} Neighborhood Market Update: ${t.name} Leads at ${d$(t.soldPpsf)} a Square Foot` : `${Z} Neighborhood Market Update`;
+  const subhead = `${z.sold} sales, ${num(z.soldDom)} median days on market and ${z.active} active listings across ${M.nbs.length} neighborhoods ${WP}`;
+  const p1 = ranked && t !== l
+    ? `${Z} closed ${z.sold} home sales ${WP} at a median ${d$(z.soldPpsf)} per square foot, with homes selling in a median ${num(z.soldDom)} days on market. Among neighborhoods with at least ${minW} sales, ${t.name} led on price at ${d$(t.soldPpsf)} per square foot, while ${l.name} came in at ${d$(l.soldPpsf)}. That gap is the first thing a seller should price against.`
+    : `${Z} closed ${z.sold} home sales ${WP} at a median ${d$(z.soldPpsf)} per square foot, with homes selling in a median ${num(z.soldDom)} days on market. Too few neighborhoods have ${minW} or more sales to rank them on price yet, so treat the ZIP figure as the anchor and each neighborhood figure as directional until more sales close.`;
+  const p2 = `Supply tells the next chapter. ${Z} has ${z.active} active listings and ${z.pending} pending, ${ratioTxt}. ${b ? `${b.name} carries the busiest pipeline with ${b.pending} pending and ${b.active} active.` : ''} ${s && ranked ? `${s.name} is the outlier on time, with sold homes taking a median ${num(s.soldDom)} days against ${num(z.soldDom)} for the ZIP.` : ''}`.replace(/\s+/g, ' ').trim();
   const fastMkt = z.soldDom <= 10 && z.active && z.pending / z.active >= 0.6;
   const gap = t && l ? t.soldPpsf - l.soldPpsf : NaN;
-  const p3 = (t && l && t !== l)
+  const p3 = (ranked && t !== l)
     ? `For sellers, price to the neighborhood rather than the ZIP: ${t.name} and ${l.name} sit ${d$(gap)} per square foot apart, and buyers notice. ${fastMkt ? 'With pending demand this strong, a well prepared home can expect a short run.' : 'Overpricing will show up as extra days on market.'} For buyers, ${s && f && s !== f ? `${s.name} is where patience still earns room to negotiate, while ${f.name} rewards a clean offer ready on day one.` : 'the slower listings are where patience earns room to negotiate.'}`
     : `For sellers, the ZIP median is a starting point, not a price. Lean on the closest sales on your own street and block. For buyers, homes that pass the median ${num(z.soldDom)} days on market are where patience can earn room to negotiate, so watch them closely.`;
   const red = (arr, key) => arr.filter((n) => !n.small && Number.isFinite(n[key])).sort((a, b) => b[key] - a[key])[0];
-  const fig1 = `Fig. 1: Median sold price per square foot by neighborhood, last ${w} days.${t ? ` ${t.name} highlighted.` : ''}`;
-  const fig2 = `Fig. 2: Median days on market for sold homes by neighborhood, last ${w} days.${s ? ` ${s.name} highlighted as slowest.` : ''}`;
-  const fig3 = `Fig. 3: Active, pending and sold homes by neighborhood. Sold covers the last ${w} days; active and pending are current.`;
+  const fig1 = `Fig. 1: Median sold price per square foot by neighborhood, ${WPc}.${t && ranked ? ` ${t.name} highlighted. Gray bars have fewer than ${AR.minRank} sales and are not ranked.` : ''}`;
+  const fig2 = `Fig. 2: Median days on market for sold homes by neighborhood, ${WPc}.${s && ranked ? ` ${s.name} highlighted as slowest among ranked neighborhoods.` : ''}`;
+  const fig3 = `Fig. 3: Active, pending and sold homes by neighborhood. Sold counts ${WP}; active and pending are current.`;
   return { headline, subhead, p1, p2, p3, fig1, fig2, fig3, red };
 }
 
 function lotNote() { return AR.lotFilter && S.hasLot ? `, lots ${AR.minLot.toLocaleString()} sq ft and up` : ''; }
 function sourceLine(M) {
-  return `Source: ${AR.source}${S.isSample ? ' (fictional sample data)' : ''}. ${S.zip}${lotNote()}. Sold listings closed in the last ${AR.window} days through ${fmtDate(S.asOf)}; active and pending as of ${fmtDate(S.asOf)}. Medians shown. Neighborhoods with fewer than three sales are marked as small samples and are not ranked.`;
+  return `Source: ${AR.source}${S.isSample ? ' (fictional sample data)' : ''}. ${S.zip}${lotNote()}. Sold listings closed ${M.audit.from ? fmtDate(M.audit.from) : ''} to ${fmtDate(S.asOf)}; active and pending as of ${fmtDate(S.asOf)}. Medians shown. Only neighborhoods with ${AR.minRank} or more sales are ranked; smaller counts are shown but not ranked.`;
 }
 function nbLine(n) {
-  return `${n.name}: ${n.sold} sold, ${n.active} active, ${n.pending} pending; ${Number.isFinite(n.soldPpsf) ? d$(n.soldPpsf) + ' per sq ft sold' : 'no sales'}${Number.isFinite(n.soldDom) ? ', ' + num(n.soldDom) + ' days on market' : ''}${n.small && n.sold ? ' (small sample)' : ''}`;
+  return `${n.name}: ${n.sold} sold, ${n.active} active, ${n.pending} pending; ${Number.isFinite(n.soldPpsf) ? d$(n.soldPpsf) + ' per sq ft sold' : 'no sales'}${Number.isFinite(n.soldDom) ? ', ' + num(n.soldDom) + ' days on market' : ''}${n.sold && n.thin && n.name.indexOf(' total') < 0 ? ' (not ranked, under ' + AR.minRank + ' sales)' : ''}`;
 }
 function articleText(M, C) {
   return [C.headline, C.subhead, `${AR.byline} | ${AR.city} | ${fmtDate(S.asOf)}`, C.p1, '[Insert Chart 1]', C.fig1, '[Insert Chart 2]', C.fig2, C.p2, '[Insert Chart 3]', C.fig3, C.p3,
@@ -795,11 +805,11 @@ function hbar(M, key, title, fmt, highlight) {
   const max = Math.max(...items.map((n) => n[key]), 1);
   const bars = items.map((n, i) => {
     const y = T + i * (bh + 12), w = (W - L - R) * n[key] / max, hl = highlight && n.name === highlight.name;
-    return `<text x="${L - 16}" y="${y + bh / 2 + 7}" text-anchor="end" font-size="22" fill="${n.small ? MUTED : INK}">${esc(n.name)}${n.small ? ' *' : ''}</text>
-      <rect x="${L}" y="${y}" width="${Math.max(w, 2)}" height="${bh}" fill="${hl ? RED : n.small ? '#B9B4AA' : INK}"/>
+    return `<text x="${L - 16}" y="${y + bh / 2 + 7}" text-anchor="end" font-size="22" fill="${n.thin ? MUTED : INK}">${esc(n.name)}${n.thin ? ' *' : ''}</text>
+      <rect x="${L}" y="${y}" width="${Math.max(w, 2)}" height="${bh}" fill="${hl ? RED : n.thin ? '#B9B4AA' : INK}"/>
       <text x="${L + w + 12}" y="${y + bh / 2 + 8}" font-size="22" font-weight="700" fill="${hl ? RED : INK}">${fmt(n[key])}</text>`;
   }).join('');
-  return svgWrap(W, H, title, bars + (items.some((n) => n.small) ? `<text x="${L}" y="${H - 22}" font-size="18" fill="${MUTED}">* Fewer than three sales, not ranked</text>` : ''));
+  return svgWrap(W, H, title, bars + (items.some((n) => n.thin) ? `<text x="${L}" y="${H - 22}" font-size="18" fill="${MUTED}">* Fewer than ${AR.minRank} sales, not ranked</text>` : ''));
 }
 function stacked(M) {
   const items = M.nbs, W = 1200, H = 675, L = 300, R = 80, T = 150, B = 50;
@@ -845,7 +855,7 @@ function coverSvg(M, C) {
   <line x1="200" y1="500" x2="1720" y2="500" stroke="${RULE}" stroke-width="2"/>
   ${stats.map(([v, l], i) => `<text x="${sx(i) + 100}" y="660" text-anchor="middle" font-size="96" font-weight="700" fill="${i === 3 ? RED : INK}" font-family="'Playfair Display', Georgia, serif">${esc(v)}</text><text x="${sx(i) + 100}" y="720" text-anchor="middle" font-size="26" fill="${MUTED}">${esc(l)}</text>`).join('')}
   <line x1="200" y1="790" x2="1720" y2="790" stroke="${RULE}" stroke-width="2"/>
-  <text x="960" y="850" text-anchor="middle" font-size="26" fill="${MUTED}">ZIP ${esc(S.zip)}${esc(lotNote())} · Last ${AR.window} days${S.isSample ? ' · Fictional sample data' : ''}</text>
+  <text x="960" y="850" text-anchor="middle" font-size="26" fill="${MUTED}">ZIP ${esc(S.zip)}${esc(lotNote())} · ${esc(spanPhrase(M).replace(/^in the l/, 'L').replace(/^since/, 'Since'))}${S.isSample ? ' · Fictional sample data' : ''}</text>
   <text x="960" y="910" text-anchor="middle" font-size="30" font-style="italic" fill="${INK}">${esc(AR.byline)}</text></svg>`;
 }
 
@@ -858,9 +868,11 @@ function renderArea(rs) {
   const warns = [];
   if (!S.hasLot && AR.lotFilter) warns.push('No lot size column in this file, so the lot filter is off.');
   if (a.noLot) warns.push(`${a.noLot} rows had no lot size and were left out.`);
+  const noDom = M.zip.recs.filter((r) => r.status === 'Sold' && !Number.isFinite(r.dom)).length;
+  if (noDom) warns.push(`${noDom} sold rows have a blank days-on-market value and are left out of the DOM medians.`);
   if (!M.zip.pending) warns.push('Zero pending listings. Check the export includes pending statuses.');
   if (!M.full.length) warns.push('No neighborhood has three or more sales. Copy will avoid ranking.');
-  const cell = (n) => `<td>${esc(n.name)}${n.small && n.sold ? ' <span class="tag conf-hold">Small</span>' : ''}</td><td>${n.active}</td><td>${n.pending}</td><td>${n.sold}</td><td>${d$(n.soldPpsf)}</td><td>${d$(n.actPpsf)}</td><td>${num(n.soldDom)}</td><td>${num(n.actDom)}</td>`;
+  const cell = (n) => `<td>${esc(n.name)}${n.thin && n.name.indexOf(' total') < 0 ? ` <span class="tag conf-hold">${n.sold < 3 ? 'Small' : 'Thin'}</span>` : ''}</td><td>${n.active}</td><td>${n.pending}</td><td>${n.sold}</td><td>${d$(n.soldPpsf)}</td><td>${d$(n.actPpsf)}</td><td>${num(n.soldDom)}</td><td>${num(n.actDom)}</td>`;
   const paras = [['p1', C.p1], ['p2', C.p2], ['p3', C.p3]];
   const wc = paras.map(([k, p]) => { const n = words(p); return `<li class="${n >= 45 && n <= 65 ? 'ok' : 'warn'}"><span class="mk">${n >= 45 && n <= 65 ? 'OK' : 'Check'}</span>Paragraph ${k[1]}: ${n} words ${n >= 45 && n <= 65 ? '(in range)' : '(target 45 to 65)'}</li>`; }).join('');
   const dash = /[\u2014\u2013]| - /.test(C.p1 + C.p2 + C.p3);
@@ -869,6 +881,7 @@ function renderArea(rs) {
     <details class="ar-settings" ${S.arOpen ? 'open' : ''} data-testid="details-area-settings"><summary>Report settings</summary>
       <div class="ar-grid">
         <label class="ar-field"><span class="label">Sold window</span><select data-ar-n="window" data-testid="select-area-window">${[60, 90, 120].map((d) => `<option ${AR.window === d ? 'selected' : ''} value="${d}">Last ${d} days</option>`).join('')}</select></label>
+        <label class="ar-field"><span class="label">Rank neighborhoods with at least</span><select data-ar-n="minRank" data-testid="select-area-minrank">${[3, 5, 6, 8].map((d) => `<option ${AR.minRank === d ? 'selected' : ''} value="${d}">${d} sales</option>`).join('')}</select></label>
         <label class="ar-field ar-check"><input type="checkbox" id="ar-lot" ${AR.lotFilter ? 'checked' : ''} ${S.hasLot ? '' : 'disabled'} data-testid="checkbox-area-lot"/><span>Lots ${AR.minLot.toLocaleString()} sq ft and up</span></label>
         ${f('city', 'Dateline city')}${f('issue', 'Issue number')}${f('byline', 'Byline')}${f('source', 'Source name')}
         ${f('name', 'Contact name')}${f('role', 'Role')}${f('firm', 'Firm')}${f('phone', 'Phone', 'optional')}${f('email', 'Email', 'optional')}${f('web', 'Website', 'optional')}${f('license', 'License line', 'optional')}
@@ -910,7 +923,7 @@ function renderArea(rs) {
 
 function buildPrint(M, C) {
   const contact = [AR.name, [AR.role, AR.firm].filter(Boolean).join(', '), AR.phone, AR.email, AR.web, AR.license].filter(Boolean).map(esc).join('<br/>');
-  const cell = (n) => `<td>${esc(n.name)}${n.small && n.sold ? '*' : ''}</td><td>${n.active}</td><td>${n.pending}</td><td>${n.sold}</td><td>${d$(n.soldPpsf)}</td><td>${d$(n.actPpsf)}</td><td>${num(n.soldDom)}</td><td>${num(n.actDom)}</td>`;
+  const cell = (n) => `<td>${esc(n.name)}${n.thin && n.name.indexOf(' total') < 0 ? '*' : ''}</td><td>${n.active}</td><td>${n.pending}</td><td>${n.sold}</td><td>${d$(n.soldPpsf)}</td><td>${d$(n.actPpsf)}</td><td>${num(n.soldDom)}</td><td>${num(n.actDom)}</td>`;
   $('#print-sheet').innerHTML = `
     <div class="ps-strip"><span>${esc(AR.issue)}</span><span>${esc(AR.city)}</span><span>${esc(fmtDate(S.asOf))}</span></div>
     <div class="ps-kicker">${esc(S.zip)} Neighborhood Market Update</div>

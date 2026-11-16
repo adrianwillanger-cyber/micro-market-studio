@@ -273,8 +273,8 @@ dialog::backdrop { background: rgba(22, 22, 22, .45); }
   .ps-figs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6pt 10pt; margin: 4pt 9%; }
   .ps-figs > div:nth-child(3) { grid-column: 1 / -1; width: 42%; justify-self: center; }
   .ps-figs svg { width: 100%; height: auto; display: block; border: .5pt solid #CFCBC2; }
-  .ps-table { width: 100%; border-collapse: collapse; font-size: 8pt; }
-  .ps-table th, .ps-table td { border-bottom: .5pt solid #CFCBC2; padding: 2pt 4pt; text-align: right; }
+  .ps-table { width: 100%; border-collapse: collapse; font-size: 7.5pt; }
+  .ps-table th, .ps-table td { border-bottom: .5pt solid #CFCBC2; padding: 1.2pt 4pt; line-height: 1.2; text-align: right; }
   .ps-table th:first-child, .ps-table td:first-child { text-align: left; }
   .ps-table thead th { border-bottom: 1pt solid #1A1815; font-family: Inter, sans-serif; font-size: 7pt; text-transform: uppercase; letter-spacing: .05em; }
   .ps-table tfoot td { border-top: 1pt solid #1A1815; font-weight: 700; }
