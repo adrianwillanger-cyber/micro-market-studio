@@ -1035,13 +1035,13 @@ function carouselSlides(M, C) {
   const big = C.headline.split(': ').slice(1).join(': ') || C.headline;
   const hl = wrapT(big, 18), stats = [[String(z.sold), 'Homes sold'], [d$(z.soldPpsf), 'Median $/sq ft'], [num(z.soldDom), 'Median days on market'], [String(z.active), 'Active listings']];
   // 1. cover: broadsheet front page
-  const hy = 520, sy = hy + hl.length * 112 + 20, subL = wrapT(C.subhead, 46);
+  const hy = 530, sy = hy + hl.length * 124 + 10, subL = wrapT(C.subhead, 46);
   out.push(slideFrame(1, N, `<text x="${CW / 2}" y="190" text-anchor="middle" font-size="40" font-style="italic" fill="${RED}">${esc(S.zip)} Neighborhood Market Update</text>
     <line x1="${PADX}" y1="230" x2="${CW - PADX}" y2="230" stroke="${INK}" stroke-width="1"/>
     <text x="${CW / 2}" y="330" text-anchor="middle" font-size="120" font-weight="700" fill="${INK}" font-family="'Playfair Display', Georgia, serif">${esc(S.zip)}</text>
     <text x="${CW / 2}" y="390" text-anchor="middle" font-size="28" letter-spacing="6" fill="${MUTED}">NEIGHBORHOOD BY NEIGHBORHOOD</text>
     <line x1="${PADX}" y1="430" x2="${CW - PADX}" y2="430" stroke="${INK}" stroke-width="3"/><line x1="${PADX}" y1="438" x2="${CW - PADX}" y2="438" stroke="${INK}" stroke-width="1"/>
-    ${tLines(hl, CW / 2, hy, 112, `text-anchor="middle" font-size="100" font-weight="700" fill="${INK}" font-family="'Playfair Display', Georgia, serif"`)}
+    ${tLines(hl, CW / 2, hy, 124, `text-anchor="middle" font-size="100" font-weight="700" fill="${INK}" font-family="'Playfair Display', Georgia, serif"`)}
     ${tLines(subL, CW / 2, sy + 30, 44, `text-anchor="middle" font-size="34" fill="${MUTED}"`)}
     <text x="${CW / 2}" y="${sy + 30 + subL.length * 44 + 40}" text-anchor="middle" font-size="34" font-style="italic" fill="${INK}">${esc(AR.byline)}</text>
     <line x1="${CW / 2 - 60}" y1="${CH - 200}" x2="${CW / 2 + 60}" y2="${CH - 200}" stroke="${RED}" stroke-width="4"/>
