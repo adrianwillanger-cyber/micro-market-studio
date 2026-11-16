@@ -13,7 +13,9 @@ Signal board, What changed, Price bands, Area report, Queue
 - LinkedIn carousel: 8 slides (9 with the small lot slide) at 1080x1350 (Print carousel PDF with margins set to None, or Download slides as PNG)
 
 ## Files
-- `index.html`, `styles.css`, `app.js`: the app
+- `index.html`: client-facing 98125 market update page (the GitHub Pages home page)
+- `reports/98125-2026-11/`: charts, share image and one-page PDF used by that page
+- `studio.html`, `styles.css`, `app.js`: the app
 - `tools/merge_exports.py`: stack several exports into a longer sold window (newest copy of each listing wins)
 - `data/98125-sample.csv`, `gen_sample.py`: sample data
 
@@ -21,4 +23,4 @@ Signal board, What changed, Price bands, Area report, Queue
 ```
 python3 -m http.server 8765
 ```
-Then open http://localhost:8765. Sessions are saved and loaded as a JSON file.
+Then open http://localhost:8765/studio.html. Sessions are saved and loaded as a JSON file.
