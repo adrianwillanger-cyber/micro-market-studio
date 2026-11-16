@@ -7,6 +7,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
 const DAY = 864e5;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const mean = (a) => { const v = a.filter((x) => Number.isFinite(x)); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : NaN; };
 const median = (a) => { const v = a.filter((x) => Number.isFinite(x)).sort((x, y) => x - y); if (!v.length) return NaN; const m = v.length >> 1; return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2; };
 const money = (n) => { if (!Number.isFinite(n)) return 'n/a'; if (n >= 1e6) return '$' + (n / 1e6).toFixed(n >= 1e7 ? 1 : 2).replace(/\.?0+$/, '') + 'M'; return '$' + Math.round(n / 1e3) + 'K'; };
 const money0 = (n) => Number.isFinite(n) ? '$' + Math.round(n).toLocaleString('en-US') : '';
@@ -744,13 +745,13 @@ function domNotes(M) {
 }
 
 function areaRows(rs) {
-  const out = { kept: [], belowLot: 0, noLot: 0 };
+  const out = { kept: [], small: [], belowLot: 0, noLot: 0 };
   rs.forEach((r) => {
     if (r.status === 'Expired') return;
     if (r.status === 'Sold' && !(ago(r.sd) < AR.window)) return;
     if (AR.lotFilter && S.hasLot) {
       if (!Number.isFinite(r.lot) || r.lot <= 0) { out.noLot++; return; }
-      if (r.lot < AR.minLot) { out.belowLot++; return; }
+      if (r.lot < AR.minLot) { out.belowLot++; out.small.push(r); return; }
     }
     out.kept.push(r);
   });
@@ -763,6 +764,7 @@ function areaMetrics(rs) {
     return { name, sold: sold.length, active: act.length, pending: pen.length,
       soldPpsf: median(sold.map((r) => r.ppsf)), actPpsf: median(act.map((r) => r.sq > 0 ? r.list / r.sq : NaN)),
       soldDom: median(sold.map((r) => r.dom)), actDom: median(act.map((r) => r.dom)), medSold: median(sold.map((r) => r.sold)),
+      avgSold: mean(sold.map((r) => r.sold)), avgPpsf: mean(sold.map((r) => r.ppsf)), medSq: median(sold.map((r) => r.sq > 0 ? r.sq : NaN)),
       small: sold.length < 3, thin: sold.length < AR.minRank, recs: sub };
   };
   const nbs = [...new Set(k.map((r) => r.nb))].map((nb) => stat(k.filter((r) => r.nb === nb), nb))
@@ -786,7 +788,11 @@ function areaMetrics(rs) {
   const byD = full.slice().sort((a, b) => b.soldDom - a.soldDom);
   const busiest = nbs.filter((n) => n.name !== 'Unassigned').slice().sort((a, b) => b.pending - a.pending || b.active - a.active)[0];
   const soldDates = k.filter((r) => r.status === 'Sold' && r.sd).map((r) => r.sd.getTime());
-  return { nbs, zip, sizeBand: { lo, hi }, top: byP[0], low: byP[byP.length - 1], slow: byD[0], fast: byD[byD.length - 1], busiest, full,
+  // small-lot homes: their own group, never mixed into the standard-lot medians
+  const sm = A.small, smNbs = [...new Set(sm.map((r) => r.nb))].map((nb) => stat(sm.filter((r) => r.nb === nb), nb))
+    .sort((a, b) => (b.sold + b.active + b.pending) - (a.sold + a.active + a.pending));
+  const smallLot = sm.length ? { nbs: smNbs, zip: stat(sm, 'Small lot total') } : null;
+  return { nbs, zip, smallLot, sizeBand: { lo, hi }, top: byP[0], low: byP[byP.length - 1], slow: byD[0], fast: byD[byD.length - 1], busiest, full,
     audit: { rows: rs.length, kept: k.length, belowLot: A.belowLot, noLot: A.noLot, from: soldDates.length ? new Date(Math.min(...soldDates)) : null } };
 }
 
@@ -818,19 +824,36 @@ function areaCopy(M) {
   const fig1 = `Fig. 1: Median sold price per square foot by neighborhood, ${WPc}.${t && ranked ? ` ${t.name} highlighted. Gray bars have fewer than ${AR.minRank} sales and are not ranked.` : ''}`;
   const fig2 = `Fig. 2: Median days on market for sold homes by neighborhood, ${WPc}.${s && ranked ? ` ${s.name} highlighted as slowest among ranked neighborhoods.` : ''}`;
   const fig3 = `Fig. 3: Active, pending and sold homes by neighborhood. Sold counts ${WP}; active and pending are current.`;
-  return { headline, subhead, p1, p2, p3, fig1, fig2, fig3, red, notes1: priceNotes(M), notes2: domNotes(M) };
+  const L = M.smallLot, lz = L && L.zip;
+  const p4 = lz ? (lz.sold
+    ? `Small lot homes, on lots under ${AR.minLot.toLocaleString()} square feet, are counted on their own so they do not move the neighborhood medians. Of these, ${lz.sold} sold ${WP} at a median ${d$(lz.soldPpsf)} per square foot and ${d$(lz.medSold)}, against ${d$(z.soldPpsf)} and ${d$(z.medSold)} on standard lots. They took a median ${num(lz.soldDom)} days on market, with ${lz.active} active and ${lz.pending} pending now.${lz.sold < AR.minRank ? ` With only ${lz.sold} sales, read these figures as directional.` : ''}`
+    : `Small lot homes, on lots under ${AR.minLot.toLocaleString()} square feet, are counted on their own. None sold ${WP}; ${lz.active} are active and ${lz.pending} pending.`) : '';
+  return { headline, subhead, p1, p2, p3, p4, fig1, fig2, fig3, red, notes1: priceNotes(M), notes2: domNotes(M) };
 }
 
 function lotNote() { return AR.lotFilter && S.hasLot ? `, lots ${AR.minLot.toLocaleString()} sq ft and up` : ''; }
 function sourceLine(M) {
-  return `Source: ${AR.source}${S.isSample ? ' (fictional sample data)' : ''}. ${S.zip}${lotNote()}. Sold listings closed ${M.audit.from ? fmtDate(M.audit.from) : ''} to ${fmtDate(S.asOf)}; active and pending as of ${fmtDate(S.asOf)}. Medians shown. Only neighborhoods with ${AR.minRank} or more sales are ranked; smaller counts are shown but not ranked.`;
+  return `Source: ${AR.source}${S.isSample ? ' (fictional sample data)' : ''}. ${S.zip}${lotNote()}. Sold listings closed ${M.audit.from ? fmtDate(M.audit.from) : ''} to ${fmtDate(S.asOf)}; active and pending as of ${fmtDate(S.asOf)}. Medians shown. Only neighborhoods with ${AR.minRank} or more sales are ranked; smaller counts are shown but not ranked.${M.smallLot ? ` Homes on lots under ${AR.minLot.toLocaleString()} sq ft are reported as their own group; medians and averages are figured separately for each group.` : ''}`;
 }
 function nbLine(n) {
   const m = mark(n); return `${n.name}${m ? ' ' + m : ''}: ${n.sold} sold, ${n.active} active, ${n.pending} pending; ${Number.isFinite(n.soldPpsf) ? d$(n.soldPpsf) + ' per sq ft sold' : 'no sales'}${Number.isFinite(n.soldDom) ? ', ' + num(n.soldDom) + ' days on market' : ''}${n.sold && n.thin && n.name.indexOf(' total') < 0 ? ' (not ranked, under ' + AR.minRank + ' sales)' : ''}`;
 }
+function compareRows(M) {
+  const a = M.zip, b = M.smallLot.zip;
+  return [['Homes sold', a.sold, b.sold], ['Median sold price', d$(a.medSold), d$(b.medSold)], ['Average sold price', d$(a.avgSold), d$(b.avgSold)],
+    ['Median $/sq ft', d$(a.soldPpsf), d$(b.soldPpsf)], ['Average $/sq ft', d$(a.avgPpsf), d$(b.avgPpsf)], ['Median home size', Number.isFinite(a.medSq) ? Math.round(a.medSq).toLocaleString() + ' sq ft' : 'n/a', Number.isFinite(b.medSq) ? Math.round(b.medSq).toLocaleString() + ' sq ft' : 'n/a'],
+    ['Median days on market', num(a.soldDom), num(b.soldDom)], ['Active', a.active, b.active], ['Pending', a.pending, b.pending]];
+}
+function smallLotText(M, C) {
+  if (!M.smallLot) return [];
+  const lbl = `lots ${AR.minLot.toLocaleString()}+ sq ft`, sl = `under ${AR.minLot.toLocaleString()} sq ft`;
+  return [`Small lot homes (lots under ${AR.minLot.toLocaleString()} sq ft)`, C.p4,
+    ...compareRows(M).map(([k, a, b]) => `${k}: ${a} on ${lbl}; ${b} on lots ${sl}`),
+    ...M.smallLot.nbs.map((n) => `${n.name}: ${n.sold} sold, ${n.active} active, ${n.pending} pending${Number.isFinite(n.soldPpsf) ? '; ' + d$(n.soldPpsf) + ' per sq ft sold' : ''}`)];
+}
 function articleText(M, C) {
   return [C.headline, C.subhead, `${AR.byline} | ${AR.city} | ${fmtDate(S.asOf)}`, C.p1, C.fig1, ...C.notes1, C.fig2, ...C.notes2, C.p2, C.fig3, C.p3,
-    'Neighborhood by neighborhood', ...M.nbs.map(nbLine), nbLine(M.zip), sourceLine(M)].join('\n\n');
+    'Neighborhood by neighborhood', ...M.nbs.map(nbLine), nbLine(M.zip), ...smallLotText(M, C), sourceLine(M)].join('\n\n');
 }
 
 // ---- charts (SVG, locked broadsheet palette) ----
@@ -926,12 +949,18 @@ function renderArea(rs) {
     <div class="ar-audit" data-testid="text-area-audit"><span class="item">${a.kept} of ${a.rows} rows used</span>${a.belowLot ? `<span class="item muted">${a.belowLot} below lot minimum</span>` : ''}<span class="item muted">Sold ${a.from ? fmtDate(a.from) : 'n/a'} to ${fmtDate(S.asOf)}</span>${warns.map((w) => `<span class="item"><span class="pill warn">Check</span>${esc(w)}</span>`).join('')}</div>
     <div class="table-wrap"><table class="data" data-testid="table-area"><thead><tr><th>Neighborhood</th><th>Active</th><th>Pending</th><th>Sold</th><th>Sold $/sq ft</th><th>Active list $/sq ft</th><th>Sold DOM</th><th>Active DOM</th></tr></thead>
       <tbody>${M.nbs.map((n) => `<tr>${cell(n)}</tr>`).join('')}</tbody><tfoot><tr>${cell(M.zip)}</tr></tfoot></table></div>
+    ${M.smallLot ? `<div class="ar-small" data-testid="section-area-smalllot"><h3 class="h3">Small lot homes (lots under ${AR.minLot.toLocaleString()} sq ft)</h3>
+      <p class="panel-note">Counted as their own group. Every median and average below is figured within its group, never across both.</p>
+      <div class="table-wrap"><table class="data" data-testid="table-area-compare"><thead><tr><th></th><th>Lots ${AR.minLot.toLocaleString()}+ sq ft</th><th>Lots under ${AR.minLot.toLocaleString()} sq ft</th></tr></thead>
+      <tbody>${compareRows(M).map(([k, a, b]) => `<tr><td>${esc(k)}</td><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</tbody></table></div>
+      <div class="table-wrap"><table class="data" data-testid="table-area-smalllot"><thead><tr><th>Neighborhood</th><th>Active</th><th>Pending</th><th>Sold</th><th>Sold $/sq ft</th><th>Active list $/sq ft</th><th>Sold DOM</th><th>Active DOM</th></tr></thead>
+      <tbody>${M.smallLot.nbs.map((n) => `<tr>${cell(n)}</tr>`).join('')}</tbody><tfoot><tr>${cell(M.smallLot.zip)}</tr></tfoot></table></div></div>` : ''}
     <div class="ar-charts">
       ${[['cover', 'Cover 1920×1080'], ['fig1', 'Fig. 1 Price per sq ft'], ['fig2', 'Fig. 2 Days on market'], ['fig3', 'Fig. 3 Pipeline']].map(([k, l]) => `<figure class="ar-fig" data-testid="figure-area-${k}"><div class="ar-svg" id="ar-${k}"></div><figcaption><span>${l}</span><button class="btn ghost" data-png="${k}" data-testid="button-png-${k}">Download PNG</button></figcaption></figure>`).join('')}
     </div>
     <div class="ar-carousel" data-testid="section-area-carousel"><div class="ar-article-head"><h3 class="h3">LinkedIn carousel</h3>
       <div class="ar-actions"><button class="btn" id="ar-car-pdf" data-testid="button-carousel-pdf">Print carousel PDF</button><button class="btn ghost" id="ar-car-png" data-testid="button-carousel-png">Download slides (PNG)</button></div></div>
-      <p class="panel-note">Eight 1080×1350 slides, starting with a cover. Upload the PDF to LinkedIn as a document post. Use Save as PDF with margins set to None.</p>
+      <p class="panel-note">${M.smallLot ? 'Nine' : 'Eight'} 1080×1350 slides, starting with a cover. Upload the PDF to LinkedIn as a document post. Use Save as PDF with margins set to None.</p>
       <div class="ar-car-strip" id="ar-car"></div></div>
     <div class="ar-article">
       <div class="ar-article-head"><h3 class="h3">LinkedIn article text</h3>
@@ -1030,8 +1059,21 @@ function cTable(M) {
   }).join('');
   return head + body + tLines(wrapT('Sold, $/sq ft and DOM are medians for sold homes. Marks match the chart notes.', 66), PADX, CH - 120, 34, `font-size="25" fill="${MUTED}"`);
 }
+function cCompare(M) {
+  const T = 340, rh = 66, xs = [PADX, 760, CW - PADX];
+  const head = [['', xs[0], 'start'], [`${AR.minLot.toLocaleString()}+ SQ FT LOTS`, xs[1], 'end'], [`UNDER ${AR.minLot.toLocaleString()}`, xs[2], 'end']]
+    .map(([l, x, a], j) => `<text x="${x}" y="${T - 20}" text-anchor="${a}" font-size="20" letter-spacing="1" font-weight="700" fill="${j === 2 ? RED : INK}" font-family="Inter, Arial, sans-serif">${esc(l)}</text>`).join('') +
+    `<line x1="${PADX}" y1="${T - 6}" x2="${CW - PADX}" y2="${T - 6}" stroke="${INK}" stroke-width="2"/>`;
+  const body = compareRows(M).map(([k, a, b], i) => { const y = T + (i + 1) * rh - rh * 0.3;
+    return `<text x="${xs[0]}" y="${y}" font-size="30" fill="${INK}">${esc(k)}</text><text x="${xs[1]}" y="${y}" text-anchor="end" font-size="30" fill="${INK}">${esc(a)}</text><text x="${xs[2]}" y="${y}" text-anchor="end" font-size="30" font-weight="700" fill="${RED}">${esc(b)}</text>` +
+      `<line x1="${PADX}" y1="${T + (i + 1) * rh + 4}" x2="${CW - PADX}" y2="${T + (i + 1) * rh + 4}" stroke="${RULE}" stroke-width="1"/>`; }).join('');
+  const lz = M.smallLot.zip, nbs = M.smallLot.nbs.filter((n) => n.sold).map((n) => `${n.name} ${n.sold}`).join(', ');
+  const note = `Each column is its own group; nothing is averaged across both.${lz.sold ? ` Sold by neighborhood: ${nbs}.` : ''}${lz.sold && lz.sold < AR.minRank ? ` With ${lz.sold} sales, read as directional.` : ''}`;
+  const nl = wrapT(note, 60);
+  return head + body + tLines(nl, PADX, CH - 120 - (nl.length - 1) * 36, 36, `font-size="26" fill="${MUTED}"`);
+}
 function carouselSlides(M, C) {
-  const z = M.zip, t = M.top, N = 8, out = [];
+  const z = M.zip, t = M.top, N = M.smallLot ? 9 : 8, out = [];
   const big = C.headline.split(': ').slice(1).join(': ') || C.headline;
   const hl = wrapT(big, 18), stats = [[String(z.sold), 'Homes sold'], [d$(z.soldPpsf), 'Median $/sq ft'], [num(z.soldDom), 'Median days on market'], [String(z.active), 'Active listings']];
   // 1. cover: broadsheet front page
@@ -1054,15 +1096,17 @@ function carouselSlides(M, C) {
   out.push(slideFrame(4, N, slideHead('Days on market', `Median for sold homes${M.slow ? ` · ${M.slow.name} slowest` : ''}`) + cBars(M, 'soldDom', (x) => num(x) + ' days', M.slow, C.notes2, false)));
   out.push(slideFrame(5, N, slideHead('The pipeline', `${z.active} active, ${z.pending} pending, ${z.sold} sold`) + cPipeline(M)));
   out.push(slideFrame(6, N, slideHead('Neighborhood by neighborhood', `${S.zip}${lotNote()}`) + cTable(M)));
+  let sn = 7;
+  if (M.smallLot) out.push(slideFrame(sn++, N, slideHead('Small lot homes', `Lots under ${AR.minLot.toLocaleString()} sq ft, counted on their own`) + cCompare(M)));
   const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
   const parts = C.p3.split(/ (?=For buyers,)/).map((x) => cap(x.replace(/^For (sellers|buyers), /, '')));
-  out.push(slideFrame(7, N, slideHead('What it means', 'For sellers and buyers') +
+  out.push(slideFrame(sn++, N, slideHead('What it means', 'For sellers and buyers') +
     `<text x="${PADX}" y="350" font-size="26" letter-spacing="3" font-weight="700" fill="${RED}" font-family="Inter, Arial, sans-serif">SELLERS</text>` +
     tLines(wrapT(parts[0] || '', 40), PADX, 410, 52, `font-size="38" fill="${INK}"`) +
     (parts[1] ? `<text x="${PADX}" y="${410 + wrapT(parts[0], 40).length * 52 + 70}" font-size="26" letter-spacing="3" font-weight="700" fill="${RED}" font-family="Inter, Arial, sans-serif">BUYERS</text>` +
       tLines(wrapT(parts[1], 40), PADX, 410 + wrapT(parts[0], 40).length * 52 + 130, 52, `font-size="38" fill="${INK}"`) : '')));
   const contact = [AR.name, [AR.role, AR.firm].filter(Boolean).join(', '), AR.phone, AR.email, AR.web, AR.license].filter(Boolean);
-  out.push(slideFrame(8, N, `<text x="${PADX}" y="260" font-size="36" font-style="italic" fill="${RED}">${esc(S.zip)} Neighborhood Market Update</text>
+  out.push(slideFrame(sn++, N, `<text x="${PADX}" y="260" font-size="36" font-style="italic" fill="${RED}">${esc(S.zip)} Neighborhood Market Update</text>
     ${tLines(wrapT('Want this breakout for your street?', 22), PADX, 370, 96, `font-size="80" font-weight="700" fill="${INK}" font-family="'Playfair Display', Georgia, serif"`)}
     <text x="${PADX}" y="620" font-size="34" fill="${MUTED}">Message me for the full one-page report.</text>
     <line x1="${PADX}" y1="690" x2="${CW - PADX}" y2="690" stroke="${RULE}" stroke-width="2"/>
@@ -1080,9 +1124,10 @@ function buildPrint(M, C) {
     <h1 class="ps-hl">${esc(C.headline.split(': ').slice(1).join(': ') || C.headline)}</h1>
     <div class="ps-sub">${esc(C.subhead)}</div><div class="ps-by">${esc(AR.byline)}</div>
     <div class="ps-cols"><p class="${/^[A-Za-z]/.test(C.p1) ? 'ps-drop' : ''}">${esc(C.p1)}</p><p>${esc(C.p2)}</p><p>${esc(C.p3)}</p></div>
-    <div class="ps-figs"><div>${$('#ar-fig1').innerHTML}</div><div>${$('#ar-fig2').innerHTML}</div><div>${$('#ar-fig3').innerHTML}</div></div>
+    <div class="ps-figs${M.smallLot ? ' three' : ''}"><div>${$('#ar-fig1').innerHTML}</div><div>${$('#ar-fig2').innerHTML}</div><div>${$('#ar-fig3').innerHTML}</div></div>
     ${[...new Set([...C.notes1, ...C.notes2])].length ? `<div class="ps-notes">${[...new Set([...C.notes1, ...C.notes2])].map((t) => `<div>${esc(t)}</div>`).join('')}</div>` : ''}
     <table class="ps-table"><thead><tr><th>Neighborhood</th><th>Active</th><th>Pending</th><th>Sold</th><th>Sold $/SF</th><th>Active $/SF</th><th>Sold DOM</th><th>Active DOM</th></tr></thead><tbody>${M.nbs.map((n) => `<tr>${cell(n)}</tr>`).join('')}</tbody><tfoot><tr>${cell(M.zip)}</tr></tfoot></table>
+    ${M.smallLot ? `<div class="ps-small"><div class="ps-small-h">Small lot homes, lots under ${AR.minLot.toLocaleString()} sq ft, counted on their own</div><table class="ps-table ps-cmp"><thead><tr>${['', ...compareRows(M).map((r) => r[0].replace('Median ', 'Med. ').replace('Average ', 'Avg. ').replace('days on market', 'DOM').replace('home size', 'size'))].map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody><tr><td>Lots ${AR.minLot.toLocaleString()}+</td>${compareRows(M).map((r) => `<td>${esc(String(r[1]).replace(' sq ft', ''))}</td>`).join('')}</tr><tr><td>Under ${AR.minLot.toLocaleString()}</td>${compareRows(M).map((r) => `<td>${esc(String(r[2]).replace(' sq ft', ''))}</td>`).join('')}</tr></tbody></table></div>` : ''}
     <div class="ps-foot"><div class="ps-contact">${contact}</div><div class="ps-method">${esc(sourceLine(M))}</div></div>`;
 }
 

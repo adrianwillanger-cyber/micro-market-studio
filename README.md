@@ -8,8 +8,9 @@ Signal board, What changed, Price bands, Area report, Queue
 ## Area report outputs
 - Neighborhood table and three charts (price per sq ft, days on market, pipeline)
 - Anomaly marks: `*` fewer than 6 sales, `**` home size moves the median 3% or more, `***` highest $/sq ft is 3x the lowest or more
+- Small lot homes (lots under 3,000 sq ft) reported as their own group: side-by-side table of medians and averages, neighborhood table, article section, broadsheet row and carousel slide. Nothing is averaged across the two groups.
 - LinkedIn article text, one-page broadsheet PDF, cover and chart PNGs
-- LinkedIn carousel: 8 slides at 1080x1350 (Print carousel PDF with margins set to None, or Download slides as PNG)
+- LinkedIn carousel: 8 slides (9 with the small lot slide) at 1080x1350 (Print carousel PDF with margins set to None, or Download slides as PNG)
 
 ## Files
 - `index.html`, `styles.css`, `app.js`: the app
