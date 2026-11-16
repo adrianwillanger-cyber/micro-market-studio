@@ -929,6 +929,10 @@ function renderArea(rs) {
     <div class="ar-charts">
       ${[['cover', 'Cover 1920×1080'], ['fig1', 'Fig. 1 Price per sq ft'], ['fig2', 'Fig. 2 Days on market'], ['fig3', 'Fig. 3 Pipeline']].map(([k, l]) => `<figure class="ar-fig" data-testid="figure-area-${k}"><div class="ar-svg" id="ar-${k}"></div><figcaption><span>${l}</span><button class="btn ghost" data-png="${k}" data-testid="button-png-${k}">Download PNG</button></figcaption></figure>`).join('')}
     </div>
+    <div class="ar-carousel" data-testid="section-area-carousel"><div class="ar-article-head"><h3 class="h3">LinkedIn carousel</h3>
+      <div class="ar-actions"><button class="btn" id="ar-car-pdf" data-testid="button-carousel-pdf">Print carousel PDF</button><button class="btn ghost" id="ar-car-png" data-testid="button-carousel-png">Download slides (PNG)</button></div></div>
+      <p class="panel-note">Eight 1080×1350 slides, starting with a cover. Upload the PDF to LinkedIn as a document post. Use Save as PDF with margins set to None.</p>
+      <div class="ar-car-strip" id="ar-car"></div></div>
     <div class="ar-article">
       <div class="ar-article-head"><h3 class="h3">LinkedIn article text</h3>
         <div class="ar-actions"><button class="btn" id="ar-copy" data-testid="button-area-copy">Copy article</button><button class="btn ghost" id="ar-md" data-testid="button-area-md">Download .md</button><button class="btn ghost" id="ar-all" data-testid="button-area-all">Download all images</button><button class="btn ghost" id="ar-print" data-testid="button-area-print">Print broadsheet</button><button class="btn accent" id="ar-queue" data-testid="button-area-queue">Add to queue</button></div></div>
@@ -939,6 +943,8 @@ function renderArea(rs) {
   $('#ar-fig1').innerHTML = hbar(M, 'soldPpsf', 'Median sold price per square foot', d$, M.top, C.notes1, true);
   $('#ar-fig2').innerHTML = hbar(M, 'soldDom', 'Median days on market, sold homes', (x) => num(x) + ' days', M.slow, C.notes2);
   $('#ar-fig3').innerHTML = stacked(M);
+  const slides = carouselSlides(M, C);
+  $('#ar-car').innerHTML = slides.map((sv, i) => `<figure class="ar-slide" data-testid="slide-carousel-${i + 1}">${sv}</figure>`).join('');
   $('#panel-area details summary').onclick = (e) => { S.arOpen = !e.target.closest('details').open; };
   $$('#panel-area [data-ar]').forEach((i) => i.onchange = () => set(i.dataset.ar, i.value.trim()));
   $$('#panel-area [data-ar-n]').forEach((i) => i.onchange = () => set(i.dataset.arN, +i.value));
@@ -950,12 +956,119 @@ function renderArea(rs) {
   const txt = articleText(M, C);
   $('#ar-copy').onclick = async () => { try { await navigator.clipboard.writeText(txt); toast('Article copied.'); } catch { toast('Copy blocked. Use Download .md instead.'); } };
   $('#ar-md').onclick = () => dl(new Blob([txt], { type: 'text/markdown' }), `${stem}-LinkedIn.md`);
-  $('#ar-print').onclick = () => { buildPrint(M, C); window.print(); };
+  $('#ar-print').onclick = () => { document.body.classList.remove('carousel-mode'); buildPrint(M, C); window.print(); };
+  $('#ar-car-pdf').onclick = () => { $('#print-carousel').innerHTML = slides.map((sv) => `<div class="slide">${sv}</div>`).join(''); document.body.classList.add('carousel-mode'); window.print(); setTimeout(() => document.body.classList.remove('carousel-mode'), 1000); };
+  $('#ar-car-png').onclick = () => slides.forEach((sv, i) => setTimeout(() => svgToPng(sv, `${stem}-Carousel-${String(i + 1).padStart(2, '0')}.png`, CW, CH), i * 400));
   $('#ar-queue').onclick = () => {
     const opt = $('#slot').selectedOptions[0];
     S.queue.push({ headline: C.headline, format: 'Area report article', lens: 'all', slot: opt ? opt.value : '', slotLabel: opt ? opt.textContent : 'unscheduled', status: 'Queued', text: txt, sigs: [] });
     saveState(); renderQueue(); toast(`Area report queued for ${opt ? opt.textContent : 'later'}.`);
   };
+}
+
+// ---------- LinkedIn carousel (1080x1350 document slides) ----------
+const CW = 1080, CH = 1350, PADX = 70;
+function wrapT(t, n) { const out = []; let line = ''; String(t).split(/\s+/).forEach((w) => { if ((line + ' ' + w).trim().length > n && line) { out.push(line); line = w; } else line = (line + ' ' + w).trim(); }); if (line) out.push(line); return out; }
+function tLines(lines, x, y, lh, attrs) { return lines.map((l, i) => `<text x="${x}" y="${y + i * lh}" ${attrs}>${esc(l)}</text>`).join(''); }
+function slideFrame(i, n, body) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${CW} ${CH}" width="${CW}" height="${CH}" font-family="Georgia, 'Source Serif 4', serif">
+  <rect width="${CW}" height="${CH}" fill="#fff"/>
+  <text x="${PADX}" y="72" font-size="22" letter-spacing="3" fill="${INK}">${esc(AR.issue.toUpperCase())}</text>
+  <text x="${CW / 2}" y="72" text-anchor="middle" font-size="22" letter-spacing="3" fill="${INK}">${esc(AR.city.toUpperCase())}</text>
+  <text x="${CW - PADX}" y="72" text-anchor="end" font-size="22" letter-spacing="3" fill="${INK}">${esc(fmtDate(S.asOf).toUpperCase())}</text>
+  <line x1="${PADX}" y1="88" x2="${CW - PADX}" y2="88" stroke="${INK}" stroke-width="3"/><line x1="${PADX}" y1="96" x2="${CW - PADX}" y2="96" stroke="${INK}" stroke-width="1"/>
+  ${body}
+  <line x1="${PADX}" y1="${CH - 78}" x2="${CW - PADX}" y2="${CH - 78}" stroke="${RULE}" stroke-width="2"/>
+  <text x="${PADX}" y="${CH - 40}" font-size="22" fill="${MUTED}">${esc(S.zip)} · ${esc(AR.source)}${S.isSample ? ' · fictional sample' : ''}</text>
+  <text x="${CW - PADX}" y="${CH - 40}" text-anchor="end" font-size="22" fill="${MUTED}">${i} / ${n}</text></svg>`;
+}
+function slideHead(title, sub) {
+  return `<text x="${PADX}" y="190" font-size="58" font-weight="700" fill="${INK}" font-family="'Playfair Display', Georgia, serif">${esc(title)}</text>
+  <text x="${PADX}" y="240" font-size="28" fill="${MUTED}">${esc(sub)}</text>
+  <line x1="${PADX}" y1="268" x2="${CW - PADX}" y2="268" stroke="${INK}" stroke-width="2"/>`;
+}
+function notesBlock(notes, bottom) {
+  const ls = notes.flatMap((t) => wrapT(t, 66)), lh = 34, y0 = bottom - (ls.length - 1) * lh;
+  return { h: ls.length ? ls.length * lh + 30 : 0, svg: tLines(ls, PADX, y0, lh, `font-size="25" fill="${MUTED}"`) };
+}
+function cBars(M, key, fmt, highlight, notes, price) {
+  const items = M.nbs.filter((n) => Number.isFinite(n[key]));
+  const nb = notesBlock(notes, CH - 120);
+  const T = 310, B = CH - 110 - nb.h, L = 370, R = 150, gap = 14;
+  const bh = Math.min(58, (B - T) / Math.max(items.length, 1) - gap);
+  const max = Math.max(...items.map((n) => n[key]), 1);
+  const bars = items.map((n, i) => {
+    const y = T + i * (bh + gap), w = (CW - L - R - PADX + 70) * n[key] / max, hl = highlight && n.name === highlight.name, m = mark(n, price);
+    return `<text x="${L - 18}" y="${y + bh / 2 + 10}" text-anchor="end" font-size="28" fill="${n.thin ? MUTED : INK}">${esc(n.name)}${m ? ' ' + m : ''}</text>
+      <rect x="${L}" y="${y}" width="${Math.max(w, 3)}" height="${bh}" fill="${hl ? RED : n.thin ? '#B9B4AA' : INK}"/>
+      <text x="${L + w + 12}" y="${y + bh / 2 + 10}" font-size="28" font-weight="700" fill="${hl ? RED : INK}">${fmt(n[key])}</text>`;
+  }).join('');
+  return bars + nb.svg;
+}
+function cPipeline(M) {
+  const items = M.nbs, T = 360, B = CH - 190, L = 370, R = 70, gap = 14;
+  const bh = Math.min(56, (B - T) / Math.max(items.length, 1) - gap);
+  const max = Math.max(...items.map((n) => n.active + n.pending + n.sold), 1);
+  const cols = [['active', INK, 'Active'], ['pending', '#8C877D', 'Pending'], ['sold', RED, 'Sold']];
+  const legend = cols.map(([, c, l], i) => `<rect x="${L + i * 190}" y="300" width="28" height="28" fill="${c}"/><text x="${L + i * 190 + 40}" y="324" font-size="28" fill="${INK}">${l}</text>`).join('');
+  const bars = items.map((n, i) => {
+    const y = T + i * (bh + gap); let x = L;
+    const segs = cols.map(([k, c]) => { const w = (CW - L - R) * n[k] / max; const s = `<rect x="${x}" y="${y}" width="${w}" height="${bh}" fill="${c}"/>` + (w > 40 ? `<text x="${x + w / 2}" y="${y + bh / 2 + 9}" text-anchor="middle" font-size="26" font-weight="700" fill="#fff">${n[k]}</text>` : ''); x += w; return s; }).join('');
+    return `<text x="${L - 18}" y="${y + bh / 2 + 10}" text-anchor="end" font-size="28" fill="${INK}">${esc(n.name)}</text>${segs}`;
+  }).join('');
+  return legend + bars + tLines(wrapT(`Sold counts ${spanPhrase(M)}; active and pending are current.`, 66), PADX, CH - 120, 34, `font-size="25" fill="${MUTED}"`);
+}
+function cTable(M) {
+  const cols = [['Neighborhood', 70, 'start'], ['Sold', 520, 'end'], ['$/sq ft', 680, 'end'], ['DOM', 785, 'end'], ['Active', 900, 'end'], ['Pend.', 1010, 'end']];
+  const rowsA = [...M.nbs, M.zip], T = 330, rh = Math.min(62, (CH - 230 - T) / rowsA.length);
+  const head = cols.map(([l, x, a]) => `<text x="${x}" y="${T - 20}" text-anchor="${a}" font-size="20" letter-spacing="1" font-weight="700" fill="${INK}" font-family="Inter, Arial, sans-serif">${l.toUpperCase()}</text>`).join('') + `<line x1="${PADX}" y1="${T - 6}" x2="${CW - PADX}" y2="${T - 6}" stroke="${INK}" stroke-width="2"/>`;
+  const body = rowsA.map((n, i) => {
+    const y = T + (i + 1) * rh - rh * 0.3, tot = i === rowsA.length - 1, m = mark(n), wt = tot ? ' font-weight="700"' : '';
+    const v = [n.name + (m ? ' ' + m : ''), n.sold, d$(n.soldPpsf), num(n.soldDom), n.active, n.pending];
+    return (tot ? `<line x1="${PADX}" y1="${T + i * rh + 4}" x2="${CW - PADX}" y2="${T + i * rh + 4}" stroke="${INK}" stroke-width="2"/>` : `<line x1="${PADX}" y1="${T + (i + 1) * rh + 4}" x2="${CW - PADX}" y2="${T + (i + 1) * rh + 4}" stroke="${RULE}" stroke-width="1"/>`) +
+      cols.map(([, x, a], j) => `<text x="${x}" y="${y}" text-anchor="${a}" font-size="28"${wt} fill="${n.thin && !tot ? MUTED : INK}">${esc(v[j])}</text>`).join('');
+  }).join('');
+  return head + body + tLines(wrapT('Sold, $/sq ft and DOM are medians for sold homes. Marks match the chart notes.', 66), PADX, CH - 120, 34, `font-size="25" fill="${MUTED}"`);
+}
+function carouselSlides(M, C) {
+  const z = M.zip, t = M.top, N = 8, out = [];
+  const big = C.headline.split(': ').slice(1).join(': ') || C.headline;
+  const hl = wrapT(big, 18), stats = [[String(z.sold), 'Homes sold'], [d$(z.soldPpsf), 'Median $/sq ft'], [num(z.soldDom), 'Median days on market'], [String(z.active), 'Active listings']];
+  // 1. cover: broadsheet front page
+  const hy = 520, sy = hy + hl.length * 112 + 20, subL = wrapT(C.subhead, 46);
+  out.push(slideFrame(1, N, `<text x="${CW / 2}" y="190" text-anchor="middle" font-size="40" font-style="italic" fill="${RED}">${esc(S.zip)} Neighborhood Market Update</text>
+    <line x1="${PADX}" y1="230" x2="${CW - PADX}" y2="230" stroke="${INK}" stroke-width="1"/>
+    <text x="${CW / 2}" y="330" text-anchor="middle" font-size="120" font-weight="700" fill="${INK}" font-family="'Playfair Display', Georgia, serif">${esc(S.zip)}</text>
+    <text x="${CW / 2}" y="390" text-anchor="middle" font-size="28" letter-spacing="6" fill="${MUTED}">NEIGHBORHOOD BY NEIGHBORHOOD</text>
+    <line x1="${PADX}" y1="430" x2="${CW - PADX}" y2="430" stroke="${INK}" stroke-width="3"/><line x1="${PADX}" y1="438" x2="${CW - PADX}" y2="438" stroke="${INK}" stroke-width="1"/>
+    ${tLines(hl, CW / 2, hy, 112, `text-anchor="middle" font-size="100" font-weight="700" fill="${INK}" font-family="'Playfair Display', Georgia, serif"`)}
+    ${tLines(subL, CW / 2, sy + 30, 44, `text-anchor="middle" font-size="34" fill="${MUTED}"`)}
+    <text x="${CW / 2}" y="${sy + 30 + subL.length * 44 + 40}" text-anchor="middle" font-size="34" font-style="italic" fill="${INK}">${esc(AR.byline)}</text>
+    <line x1="${CW / 2 - 60}" y1="${CH - 200}" x2="${CW / 2 + 60}" y2="${CH - 200}" stroke="${RED}" stroke-width="4"/>
+    <text x="${CW / 2}" y="${CH - 135}" text-anchor="middle" font-size="30" font-style="italic" fill="${INK}">Swipe for the breakout  ›</text>`));
+  // 2. by the numbers
+  out.push(slideFrame(2, N, slideHead('By the numbers', `${S.zip}${lotNote()}, ${spanPhrase(M).replace(/^in the l/, 'l')}`) +
+    stats.map(([v, l], i) => { const x = PADX + (i % 2) * 470, y = 470 + Math.floor(i / 2) * 300; return `<text x="${x}" y="${y}" font-size="130" font-weight="700" fill="${i === 1 ? RED : INK}" font-family="'Playfair Display', Georgia, serif">${esc(v)}</text><text x="${x}" y="${y + 60}" font-size="32" fill="${MUTED}">${esc(l)}</text>`; }).join('') +
+    tLines(wrapT(C.p1.split('. ').slice(1).join('. '), 52), PADX, 1000, 44, `font-size="32" fill="${INK}"`)));
+  out.push(slideFrame(3, N, slideHead('Price per square foot', `Median sold, ${spanPhrase(M).replace(/^in the /, '')}${t ? ` · ${t.name} highlighted` : ''}`) + cBars(M, 'soldPpsf', d$, M.top, C.notes1, true)));
+  out.push(slideFrame(4, N, slideHead('Days on market', `Median for sold homes${M.slow ? ` · ${M.slow.name} slowest` : ''}`) + cBars(M, 'soldDom', (x) => num(x) + ' days', M.slow, C.notes2, false)));
+  out.push(slideFrame(5, N, slideHead('The pipeline', `${z.active} active, ${z.pending} pending, ${z.sold} sold`) + cPipeline(M)));
+  out.push(slideFrame(6, N, slideHead('Neighborhood by neighborhood', `${S.zip}${lotNote()}`) + cTable(M)));
+  const cap = (x) => x.charAt(0).toUpperCase() + x.slice(1);
+  const parts = C.p3.split(/ (?=For buyers,)/).map((x) => cap(x.replace(/^For (sellers|buyers), /, '')));
+  out.push(slideFrame(7, N, slideHead('What it means', 'For sellers and buyers') +
+    `<text x="${PADX}" y="350" font-size="26" letter-spacing="3" font-weight="700" fill="${RED}" font-family="Inter, Arial, sans-serif">SELLERS</text>` +
+    tLines(wrapT(parts[0] || '', 40), PADX, 410, 52, `font-size="38" fill="${INK}"`) +
+    (parts[1] ? `<text x="${PADX}" y="${410 + wrapT(parts[0], 40).length * 52 + 70}" font-size="26" letter-spacing="3" font-weight="700" fill="${RED}" font-family="Inter, Arial, sans-serif">BUYERS</text>` +
+      tLines(wrapT(parts[1], 40), PADX, 410 + wrapT(parts[0], 40).length * 52 + 130, 52, `font-size="38" fill="${INK}"`) : '')));
+  const contact = [AR.name, [AR.role, AR.firm].filter(Boolean).join(', '), AR.phone, AR.email, AR.web, AR.license].filter(Boolean);
+  out.push(slideFrame(8, N, `<text x="${PADX}" y="260" font-size="36" font-style="italic" fill="${RED}">${esc(S.zip)} Neighborhood Market Update</text>
+    ${tLines(wrapT('Want this breakout for your street?', 22), PADX, 370, 96, `font-size="80" font-weight="700" fill="${INK}" font-family="'Playfair Display', Georgia, serif"`)}
+    <text x="${PADX}" y="620" font-size="34" fill="${MUTED}">Message me for the full one-page report.</text>
+    <line x1="${PADX}" y1="690" x2="${CW - PADX}" y2="690" stroke="${RULE}" stroke-width="2"/>
+    ${tLines(contact, PADX, 780, 52, `font-size="38" fill="${INK}"`)}
+    ${tLines(wrapT(sourceLine(M), 70), PADX, CH - 120 - (wrapT(sourceLine(M), 70).length - 1) * 30, 30, `font-size="22" fill="${MUTED}"`)}`));
+  return out;
 }
 
 function buildPrint(M, C) {
