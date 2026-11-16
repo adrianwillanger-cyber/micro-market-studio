@@ -113,7 +113,7 @@ function ingest(text, name, isSample) {
     const sq = toNum(get(r, 'sq'));
     const rec = {
       i, mls: get(r, 'mls') || 'Row ' + (i + 2), addr: get(r, 'addr') || ['stnum', 'stdir', 'stname', 'stsuf', 'stpost'].map((k) => String(get(r, k) || '').trim()).filter(Boolean).join(' ') + (String(get(r, 'unit') || '').trim() ? ' #' + String(get(r, 'unit')).trim() : '') || '(no address)', status, rawStatus: get(r, 'status'),
-      zip: String(get(r, 'zip') || '').trim().slice(0, 5) || 'n/a', nb: (() => { const c = String(get(r, 'community') || '').trim(), city = String(get(r, 'city') || '').trim(); return !c || (city && c.toLowerCase() === city.toLowerCase()) ? 'Unassigned' : c; })(),
+      zip: String(get(r, 'zip') || '').trim().slice(0, 5) || 'n/a', nb: (() => { const c = String(get(r, 'community') || '').replace(/[<>&"'`]/g, '').trim(), city = String(get(r, 'city') || '').trim(); return !c || (city && c.toLowerCase() === city.toLowerCase()) ? 'Unassigned' : c; })(),
       type: normType(get(r, 'type')), list: toNum(get(r, 'list')), orig: toNum(get(r, 'orig')), sold: toNum(get(r, 'sold')),
       ld: toDate(get(r, 'ld')), pd: toDate(get(r, 'pd')), sd: toDate(get(r, 'sd')), dom: toNum(get(r, 'dom')), sq,
       lot: toNum(get(r, 'lot')), bd: toNum(get(r, 'bd')), ba: toNum(get(r, 'ba')), yb: toNum(get(r, 'yb'))
@@ -632,7 +632,7 @@ function buildDraft() {
   const cues = body.map((b) => { const w = stripHTML(b).split(/\s+/).length; const cue = `[${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}]`; t += w / 2.5; return `<p><span class="cue">${cue}</span> ${b}</p>`; });
   return { html: `<p class="kicker">Draft for your approval. Not for narration yet.</p>` + cues.join('') + (gapNote ? P(gapNote) : '') + `<p class="muted">${words} words, about ${Math.round(words / 2.5)} seconds at 150 words per minute.</p>` };
 }
-function stripHTML(h) { const d = document.createElement('div'); d.innerHTML = h; return d.textContent; }
+function stripHTML(h) { return new DOMParser().parseFromString(String(h), 'text/html').body.textContent; }
 
 function lint(text, sigs) {
   const items = [];
