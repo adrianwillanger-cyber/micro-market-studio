@@ -270,9 +270,11 @@ dialog::backdrop { background: rgba(22, 22, 22, .45); }
   .ps-cols { column-count: 3; column-gap: 14pt; column-rule: .5pt solid #CFCBC2; }
   .ps-cols p { margin: 0 0 5pt; }
   .ps-drop::first-letter { float: left; font-family: 'Playfair Display', Georgia, serif; font-size: 34pt; line-height: .85; padding: 2pt 4pt 0 0; color: #8B1E1E; }
-  .ps-figs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6pt 10pt; margin: 4pt 9%; }
+  .ps-figs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4pt 10pt; margin: 2pt 11%; }
+  .ps-figs .ar-note { display: none; }
   .ps-figs > div:nth-child(3) { grid-column: 1 / -1; width: 42%; justify-self: center; }
   .ps-figs svg { width: 100%; height: auto; display: block; border: .5pt solid #CFCBC2; }
+  .ps-notes { font-size: 7pt; color: #4A4842; margin: 0 0 5pt; line-height: 1.3; }
   .ps-table { width: 100%; border-collapse: collapse; font-size: 7.5pt; }
   .ps-table th, .ps-table td { border-bottom: .5pt solid #CFCBC2; padding: 1.2pt 4pt; line-height: 1.2; text-align: right; }
   .ps-table th:first-child, .ps-table td:first-child { text-align: left; }

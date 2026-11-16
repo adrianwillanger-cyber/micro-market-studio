@@ -720,6 +720,29 @@ const INK = '#1A1815', MUTED = '#4A4842', RED = '#8B1E1E', RULE = '#CFCBC2';
 const words = (t) => t.trim().split(/\s+/).filter(Boolean).length;
 const d$ = (x) => Number.isFinite(x) ? '$' + Math.round(x).toLocaleString('en-US') : 'n/a';
 
+function mark(n, price = true) {
+  if (n.name.indexOf(' total') >= 0 || !n.sold) return '';
+  if (n.thin) return '*';
+  return [price && n.skew ? '**' : '', price && n.wide ? '***' : ''].filter(Boolean).join(' ');
+}
+const listNames = (a) => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+function priceNotes(M) {
+  const out = [];
+  if (M.nbs.some((n) => n.thin && n.sold)) out.push(`* Fewer than ${AR.minRank} sales, not ranked.`);
+  const sk = M.nbs.filter((n) => n.skew), wd = M.nbs.filter((n) => n.wide);
+  const r = (x) => Math.round(x / 10) * 10;
+  if (sk.length) out.push(`** Home size moves the median 3% or more. Without homes under ${r(M.sizeBand.lo).toLocaleString()} or over ${r(M.sizeBand.hi).toLocaleString()} sq ft: ${sk.map((n) => `${n.name} ${d$(n.skew.trim)}`).join(', ')}.`);
+  if (wd.length) out.push(`*** Wide price range. Sales run ${wd.map((n) => `${d$(n.wide.min)} to ${d$(n.wide.max)} per sq ft in ${n.name}`).join('; ')}.`);
+  return out;
+}
+function domNotes(M) {
+  const out = [];
+  if (M.nbs.some((n) => n.thin && Number.isFinite(n.soldDom))) out.push(`* Fewer than ${AR.minRank} sales, not ranked.`);
+  const g = M.nbs.filter((n) => n.noDom), t = g.reduce((s, n) => s + n.noDom, 0);
+  if (t) out.push(`Leaves out ${t} sale${t > 1 ? 's' : ''} with no days on market recorded: ${g.map((n) => `${n.name} ${n.noDom}`).join(', ')}.`);
+  return out;
+}
+
 function areaRows(rs) {
   const out = { kept: [], belowLot: 0, noLot: 0 };
   rs.forEach((r) => {
@@ -745,12 +768,25 @@ function areaMetrics(rs) {
   const nbs = [...new Set(k.map((r) => r.nb))].map((nb) => stat(k.filter((r) => r.nb === nb), nb))
     .sort((a, b) => (b.sold + b.active + b.pending) - (a.sold + a.active + a.pending));
   const zip = stat(k, S.zip + ' total');
+  // anomaly flags: ** home size moves the median, *** wide price range
+  const zipSq = median(k.filter((r) => r.status === 'Sold' && r.sq > 0).map((r) => r.sq));
+  const lo = 0.6 * zipSq, hi = 2 * zipSq;
+  nbs.forEach((n) => {
+    const sold = n.recs.filter((r) => r.status === 'Sold' && Number.isFinite(r.ppsf));
+    n.noDom = n.recs.filter((r) => r.status === 'Sold' && !Number.isFinite(r.dom)).length;
+    if (n.thin || !sold.length) return;
+    const mid = sold.filter((r) => r.sq >= lo && r.sq <= hi), trim = median(mid.map((r) => r.ppsf));
+    if (mid.length >= 3 && mid.length < sold.length && Math.abs(trim - n.soldPpsf) / n.soldPpsf >= 0.03)
+      n.skew = { trim, small: sold.filter((r) => r.sq < lo).length, large: sold.filter((r) => r.sq > hi).length };
+    const ps = sold.map((r) => r.ppsf), mn = Math.min(...ps), mx = Math.max(...ps);
+    if (mx / mn >= 3) n.wide = { min: mn, max: mx };
+  });
   const full = nbs.filter((n) => !n.thin && Number.isFinite(n.soldPpsf));
   const byP = full.slice().sort((a, b) => b.soldPpsf - a.soldPpsf);
   const byD = full.slice().sort((a, b) => b.soldDom - a.soldDom);
   const busiest = nbs.filter((n) => n.name !== 'Unassigned').slice().sort((a, b) => b.pending - a.pending || b.active - a.active)[0];
   const soldDates = k.filter((r) => r.status === 'Sold' && r.sd).map((r) => r.sd.getTime());
-  return { nbs, zip, top: byP[0], low: byP[byP.length - 1], slow: byD[0], fast: byD[byD.length - 1], busiest, full,
+  return { nbs, zip, sizeBand: { lo, hi }, top: byP[0], low: byP[byP.length - 1], slow: byD[0], fast: byD[byD.length - 1], busiest, full,
     audit: { rows: rs.length, kept: k.length, belowLot: A.belowLot, noLot: A.noLot, from: soldDates.length ? new Date(Math.min(...soldDates)) : null } };
 }
 
@@ -782,7 +818,7 @@ function areaCopy(M) {
   const fig1 = `Fig. 1: Median sold price per square foot by neighborhood, ${WPc}.${t && ranked ? ` ${t.name} highlighted. Gray bars have fewer than ${AR.minRank} sales and are not ranked.` : ''}`;
   const fig2 = `Fig. 2: Median days on market for sold homes by neighborhood, ${WPc}.${s && ranked ? ` ${s.name} highlighted as slowest among ranked neighborhoods.` : ''}`;
   const fig3 = `Fig. 3: Active, pending and sold homes by neighborhood. Sold counts ${WP}; active and pending are current.`;
-  return { headline, subhead, p1, p2, p3, fig1, fig2, fig3, red };
+  return { headline, subhead, p1, p2, p3, fig1, fig2, fig3, red, notes1: priceNotes(M), notes2: domNotes(M) };
 }
 
 function lotNote() { return AR.lotFilter && S.hasLot ? `, lots ${AR.minLot.toLocaleString()} sq ft and up` : ''; }
@@ -790,26 +826,27 @@ function sourceLine(M) {
   return `Source: ${AR.source}${S.isSample ? ' (fictional sample data)' : ''}. ${S.zip}${lotNote()}. Sold listings closed ${M.audit.from ? fmtDate(M.audit.from) : ''} to ${fmtDate(S.asOf)}; active and pending as of ${fmtDate(S.asOf)}. Medians shown. Only neighborhoods with ${AR.minRank} or more sales are ranked; smaller counts are shown but not ranked.`;
 }
 function nbLine(n) {
-  return `${n.name}: ${n.sold} sold, ${n.active} active, ${n.pending} pending; ${Number.isFinite(n.soldPpsf) ? d$(n.soldPpsf) + ' per sq ft sold' : 'no sales'}${Number.isFinite(n.soldDom) ? ', ' + num(n.soldDom) + ' days on market' : ''}${n.sold && n.thin && n.name.indexOf(' total') < 0 ? ' (not ranked, under ' + AR.minRank + ' sales)' : ''}`;
+  const m = mark(n); return `${n.name}${m ? ' ' + m : ''}: ${n.sold} sold, ${n.active} active, ${n.pending} pending; ${Number.isFinite(n.soldPpsf) ? d$(n.soldPpsf) + ' per sq ft sold' : 'no sales'}${Number.isFinite(n.soldDom) ? ', ' + num(n.soldDom) + ' days on market' : ''}${n.sold && n.thin && n.name.indexOf(' total') < 0 ? ' (not ranked, under ' + AR.minRank + ' sales)' : ''}`;
 }
 function articleText(M, C) {
-  return [C.headline, C.subhead, `${AR.byline} | ${AR.city} | ${fmtDate(S.asOf)}`, C.p1, '[Insert Chart 1]', C.fig1, '[Insert Chart 2]', C.fig2, C.p2, '[Insert Chart 3]', C.fig3, C.p3,
+  return [C.headline, C.subhead, `${AR.byline} | ${AR.city} | ${fmtDate(S.asOf)}`, C.p1, '[Insert Chart 1]', C.fig1, ...C.notes1, '[Insert Chart 2]', C.fig2, ...C.notes2, C.p2, '[Insert Chart 3]', C.fig3, C.p3,
     'Neighborhood by neighborhood', ...M.nbs.map(nbLine), nbLine(M.zip), sourceLine(M)].join('\n\n');
 }
 
 // ---- charts (SVG, locked broadsheet palette) ----
-function hbar(M, key, title, fmt, highlight) {
+function hbar(M, key, title, fmt, highlight, notes = [], price = false) {
   const items = M.nbs.filter((n) => Number.isFinite(n[key]));
-  const W = 1200, H = 675, L = 300, R = 120, T = 120, B = 60;
+  const W = 1200, H = 675, L = 300, R = 120, T = 120, B = 50 + 26 * notes.length;
   const bh = Math.min(56, (H - T - B) / Math.max(items.length, 1) - 12);
   const max = Math.max(...items.map((n) => n[key]), 1);
   const bars = items.map((n, i) => {
     const y = T + i * (bh + 12), w = (W - L - R) * n[key] / max, hl = highlight && n.name === highlight.name;
-    return `<text x="${L - 16}" y="${y + bh / 2 + 7}" text-anchor="end" font-size="22" fill="${n.thin ? MUTED : INK}">${esc(n.name)}${n.thin ? ' *' : ''}</text>
+    return `<text x="${L - 16}" y="${y + bh / 2 + 7}" text-anchor="end" font-size="22" fill="${n.thin ? MUTED : INK}">${esc(n.name)}${mark(n, price) ? ' ' + mark(n, price) : ''}</text>
       <rect x="${L}" y="${y}" width="${Math.max(w, 2)}" height="${bh}" fill="${hl ? RED : n.thin ? '#B9B4AA' : INK}"/>
       <text x="${L + w + 12}" y="${y + bh / 2 + 8}" font-size="22" font-weight="700" fill="${hl ? RED : INK}">${fmt(n[key])}</text>`;
   }).join('');
-  return svgWrap(W, H, title, bars + (items.some((n) => n.thin) ? `<text x="${L}" y="${H - 22}" font-size="18" fill="${MUTED}">* Fewer than ${AR.minRank} sales, not ranked</text>` : ''));
+  const nt = notes.map((t, i) => `<text class="ar-note" x="40" y="${H - 44 - 26 * (notes.length - 1 - i)}" font-size="17" fill="${MUTED}">${esc(t)}</text>`).join('');
+  return svgWrap(W, H, title, bars + nt);
 }
 function stacked(M) {
   const items = M.nbs, W = 1200, H = 675, L = 300, R = 80, T = 150, B = 50;
@@ -828,7 +865,7 @@ function svgWrap(W, H, title, body) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="Georgia, 'Source Serif 4', serif" role="img" aria-label="${esc(title)}">
     <rect width="${W}" height="${H}" fill="#fff"/><text x="40" y="62" font-size="38" font-weight="700" fill="${INK}" font-family="'Playfair Display', Georgia, serif">${esc(title)}</text>
     <line x1="40" y1="80" x2="${W - 40}" y2="80" stroke="${INK}" stroke-width="2"/>${body}
-    <text x="${W - 40}" y="${H - 22}" text-anchor="end" font-size="16" fill="${MUTED}">${esc(S.zip)} · ${esc(AR.source)}${S.isSample ? ' · fictional sample' : ''}</text></svg>`;
+    <text x="${W - 40}" y="${H - 14}" text-anchor="end" font-size="16" fill="${MUTED}">${esc(S.zip)} · ${esc(AR.source)}${S.isSample ? ' · fictional sample' : ''}</text></svg>`;
 }
 function svgToPng(svg, name, W, H) {
   const img = new Image();
@@ -872,7 +909,7 @@ function renderArea(rs) {
   if (noDom) warns.push(`${noDom} sold rows have a blank days-on-market value and are left out of the DOM medians.`);
   if (!M.zip.pending) warns.push('Zero pending listings. Check the export includes pending statuses.');
   if (!M.full.length) warns.push('No neighborhood has three or more sales. Copy will avoid ranking.');
-  const cell = (n) => `<td>${esc(n.name)}${n.thin && n.name.indexOf(' total') < 0 ? ` <span class="tag conf-hold">${n.sold < 3 ? 'Small' : 'Thin'}</span>` : ''}</td><td>${n.active}</td><td>${n.pending}</td><td>${n.sold}</td><td>${d$(n.soldPpsf)}</td><td>${d$(n.actPpsf)}</td><td>${num(n.soldDom)}</td><td>${num(n.actDom)}</td>`;
+  const cell = (n) => `<td>${esc(n.name)}${mark(n) && !n.thin ? ' ' + mark(n) : ''}${n.thin && n.name.indexOf(' total') < 0 ? ` <span class="tag conf-hold">${n.sold < 3 ? 'Small' : 'Thin'}</span>` : ''}</td><td>${n.active}</td><td>${n.pending}</td><td>${n.sold}</td><td>${d$(n.soldPpsf)}</td><td>${d$(n.actPpsf)}</td><td>${num(n.soldDom)}</td><td>${num(n.actDom)}</td>`;
   const paras = [['p1', C.p1], ['p2', C.p2], ['p3', C.p3]];
   const wc = paras.map(([k, p]) => { const n = words(p); return `<li class="${n >= 45 && n <= 65 ? 'ok' : 'warn'}"><span class="mk">${n >= 45 && n <= 65 ? 'OK' : 'Check'}</span>Paragraph ${k[1]}: ${n} words ${n >= 45 && n <= 65 ? '(in range)' : '(target 45 to 65)'}</li>`; }).join('');
   const dash = /[\u2014\u2013]| - /.test(C.p1 + C.p2 + C.p3);
@@ -899,8 +936,8 @@ function renderArea(rs) {
       <pre class="ar-text" id="ar-text" data-testid="text-area-article">${esc(articleText(M, C))}</pre>
     </div>`;
   $('#ar-cover').innerHTML = coverSvg(M, C);
-  $('#ar-fig1').innerHTML = hbar(M, 'soldPpsf', 'Median sold price per square foot', d$, M.top);
-  $('#ar-fig2').innerHTML = hbar(M, 'soldDom', 'Median days on market, sold homes', (x) => num(x) + ' days', M.slow);
+  $('#ar-fig1').innerHTML = hbar(M, 'soldPpsf', 'Median sold price per square foot', d$, M.top, C.notes1, true);
+  $('#ar-fig2').innerHTML = hbar(M, 'soldDom', 'Median days on market, sold homes', (x) => num(x) + ' days', M.slow, C.notes2);
   $('#ar-fig3').innerHTML = stacked(M);
   $('#panel-area details summary').onclick = (e) => { S.arOpen = !e.target.closest('details').open; };
   $$('#panel-area [data-ar]').forEach((i) => i.onchange = () => set(i.dataset.ar, i.value.trim()));
@@ -923,7 +960,7 @@ function renderArea(rs) {
 
 function buildPrint(M, C) {
   const contact = [AR.name, [AR.role, AR.firm].filter(Boolean).join(', '), AR.phone, AR.email, AR.web, AR.license].filter(Boolean).map(esc).join('<br/>');
-  const cell = (n) => `<td>${esc(n.name)}${n.thin && n.name.indexOf(' total') < 0 ? '*' : ''}</td><td>${n.active}</td><td>${n.pending}</td><td>${n.sold}</td><td>${d$(n.soldPpsf)}</td><td>${d$(n.actPpsf)}</td><td>${num(n.soldDom)}</td><td>${num(n.actDom)}</td>`;
+  const cell = (n) => `<td>${esc(n.name)}${mark(n)}</td><td>${n.active}</td><td>${n.pending}</td><td>${n.sold}</td><td>${d$(n.soldPpsf)}</td><td>${d$(n.actPpsf)}</td><td>${num(n.soldDom)}</td><td>${num(n.actDom)}</td>`;
   $('#print-sheet').innerHTML = `
     <div class="ps-strip"><span>${esc(AR.issue)}</span><span>${esc(AR.city)}</span><span>${esc(fmtDate(S.asOf))}</span></div>
     <div class="ps-kicker">${esc(S.zip)} Neighborhood Market Update</div>
@@ -931,6 +968,7 @@ function buildPrint(M, C) {
     <div class="ps-sub">${esc(C.subhead)}</div><div class="ps-by">${esc(AR.byline)}</div>
     <div class="ps-cols"><p class="${/^[A-Za-z]/.test(C.p1) ? 'ps-drop' : ''}">${esc(C.p1)}</p><p>${esc(C.p2)}</p><p>${esc(C.p3)}</p></div>
     <div class="ps-figs"><div>${$('#ar-fig1').innerHTML}</div><div>${$('#ar-fig2').innerHTML}</div><div>${$('#ar-fig3').innerHTML}</div></div>
+    ${[...new Set([...C.notes1, ...C.notes2])].length ? `<div class="ps-notes">${[...new Set([...C.notes1, ...C.notes2])].map((t) => `<div>${esc(t)}</div>`).join('')}</div>` : ''}
     <table class="ps-table"><thead><tr><th>Neighborhood</th><th>Active</th><th>Pending</th><th>Sold</th><th>Sold $/SF</th><th>Active $/SF</th><th>Sold DOM</th><th>Active DOM</th></tr></thead><tbody>${M.nbs.map((n) => `<tr>${cell(n)}</tr>`).join('')}</tbody><tfoot><tr>${cell(M.zip)}</tr></tfoot></table>
     <div class="ps-foot"><div class="ps-contact">${contact}</div><div class="ps-method">${esc(sourceLine(M))}</div></div>`;
 }
