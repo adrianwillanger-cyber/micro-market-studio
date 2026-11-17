@@ -130,7 +130,7 @@ function ingest(text, name, isSample) {
   S.all = recs; S.hasLot = 'lot' in map; S.mapping = map; S.isSample = isSample; S.fileName = name; S.ignored = ignored;
   S.missingOptional = ['orig', 'pd', 'type', 'zip'].filter((k) => !(k in map));
   S.typesPresent = CATS.filter((t) => recs.some((r) => cat(r) === t));
-  S.types = new Set(S.typesPresent);
+  S.types = new Set(S.typesPresent); S.smallOff = false;
   S.selected = []; S.answers = {}; S.nb = null;
   render();
 }
@@ -143,6 +143,7 @@ function showError(msg) {
 // detached (Residential) homes on those lots move to Small lot; townhouses and condos keep their type
 const CATS = ['Residential', 'Townhouse', 'Condo', 'Small lot'];
 const CAT_LABEL = { Residential: 'Residential', Townhouse: 'Townhouse', Condo: 'Condo', 'Small lot': 'Small lot homes' };
+function smallOn() { return S.typesPresent.includes('Small lot') ? S.types.has('Small lot') : !S.smallOff; }
 function isSmallLot(r) { return S.hasLot && r.type === 'Residential' && Number.isFinite(r.lot) && r.lot > 0 && r.lot < AR.minLot; }
 function cat(r) { return isSmallLot(r) ? 'Small lot' : r.type; }
 function rows() { return S.all.filter((r) => r.zip === S.zip && S.types.has(cat(r))); }
@@ -788,7 +789,7 @@ function areaRows(rs) {
     if (r.status === 'Sold' && !(ago(r.sd) < AR.window)) return;
     if (AR.lotFilter && S.hasLot) {
       if (!Number.isFinite(r.lot) || r.lot <= 0) { out.noLot++; return; }
-      if (r.lot < AR.minLot) { out.belowLot++; out.small.push(r); return; }
+      if (r.lot < AR.minLot) { out.belowLot++; if (smallOn()) out.small.push(r); return; }
     }
     out.kept.push(r);
   });
@@ -975,6 +976,7 @@ function renderArea(rs) {
   const dash = /[\u2014\u2013]| - /.test(C.p1 + C.p2 + C.p3);
   $('#panel-area').innerHTML = `
     <p class="panel-note">One-ZIP neighborhood report in the ZIP Neighborhood Market Update format: table, three charts, a 1920×1080 cover and paste-ready LinkedIn article text. Every number comes from the table.</p>
+    ${S.hasLot && AR.lotFilter && S.all.some((r) => r.zip === S.zip && Number.isFinite(r.lot) && r.lot > 0 && r.lot < AR.minLot) ? `<div class="ar-filter"><label><input type="checkbox" id="ar-small" ${smallOn() ? 'checked' : ''} data-testid="checkbox-area-smalllot"/>Small lot homes <span class="muted">(lots under ${AR.minLot.toLocaleString()} sq ft, reported as their own group)</span></label></div>` : ''}
     <details class="ar-settings" ${S.arOpen ? 'open' : ''} data-testid="details-area-settings"><summary>Report settings</summary>
       <div class="ar-grid">
         <label class="ar-field"><span class="label">Sold window</span><select data-ar-n="window" data-testid="select-area-window">${[60, 90, 120].map((d) => `<option ${AR.window === d ? 'selected' : ''} value="${d}">Last ${d} days</option>`).join('')}</select></label>
@@ -1015,6 +1017,8 @@ function renderArea(rs) {
   $$('#panel-area [data-ar]').forEach((i) => i.onchange = () => set(i.dataset.ar, i.value.trim()));
   $$('#panel-area [data-ar-n]').forEach((i) => i.onchange = () => set(i.dataset.arN, +i.value));
   $('#ar-lot').onchange = (e) => set('lotFilter', e.target.checked);
+  const sm = $('#ar-small');
+  if (sm) sm.onchange = () => { S.smallOff = !sm.checked; if (S.typesPresent.includes('Small lot')) { if (sm.checked) S.types.add('Small lot'); else if (S.types.size > 1) S.types.delete('Small lot'); else { sm.checked = true; S.smallOff = false; return; } } render(); };
   const stem = `${S.zip}-Neighborhood-Update-${isoDay(S.asOf)}`;
   const png = (k) => { const svg = $('#ar-' + k + ' svg').outerHTML; const big = k === 'cover'; svgToPng(svg, `${stem}-${big ? 'Cover' : k === 'fig1' ? 'Chart-1' : k === 'fig2' ? 'Chart-2' : 'Chart-3'}.png`, big ? 1920 : 1200, big ? 1080 : 675); };
   $$('#panel-area [data-png]').forEach((b) => b.onclick = () => png(b.dataset.png));

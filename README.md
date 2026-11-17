@@ -6,7 +6,7 @@ Static browser app that turns a Realty Toolkit / NWMLS CSV export into one-ZIP s
 Signal board, What changed, Price bands, Area report, Queue
 
 ## Filters
-- Residential, Townhouse, Condo, and Small lot homes (detached homes on lots under 3,000 sq ft, shown when the export has a lot size column). Each home falls in one group only.
+- Residential, Townhouse, Condo, and Small lot homes (detached homes on lots under 3,000 sq ft, shown when the export has a lot size column). Each home falls in one group only. The Area report has its own Small lot homes checkbox, kept in sync with the top one; unticking it drops the small lot section from the table, article, broadsheet and carousel.
 
 ## Broadsheet story
 - Graph placeholders after each signal, for example `[Graph 1: Cedar Park median days on market vs 98125, last 60 days]`
