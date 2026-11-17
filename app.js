@@ -631,10 +631,10 @@ function buildDraft() {
   }
   if (F === 'broadsheet') {
     const kicker = `${S.zip} Market Update \u00B7 ${fmtDate(S.asOf)}`;
-    const G = (n, t) => `<p class="ph">[Graph ${n}: ${esc(t)}]</p>`;
-    const graphs = data.flatMap((d, i) => [P(d), G(i + 1, graphFor(sigs[i]))]);
+    const G = (n, t, svg) => `<div class="story-fig">${svg || ''}<p class="ph">Graph ${n}: ${esc(t)}</p></div>`;
+    const graphs = data.flatMap((d, i) => [P(d), G(i + 1, graphFor(sigs[i]), sigs[i].chart ? miniChart(sigs[i].chart) : '')]);
     const sm = smallLotGraphs();
-    const smHtml = sm.length ? [`<p class="sub">Small lot homes</p>`, P(esc(sm[0])), ...sm.slice(1).map((t, i) => G(sigs.length + i + 1, t))] : [];
+    const smHtml = sm.length ? [`<p class="sub">Small lot homes</p>`, P(esc(sm[0])), ...sm.slice(1).map((g, i) => G(sigs.length + i + 1, g.t, g.svg))] : [];
     return { html: [`<p class="kicker">${esc(kicker)}</p>`, `<p class="hl">${esc(sigs[0].headline)}</p>`, P(`<em>${esc({ seller: 'What sellers need to know before listing this winter.', buyer: 'Where buyers have room to move right now.', investor: 'Where the numbers point for investors.' }[L])}</em>`), ...graphs, P(reads.join(' ') + ' ' + gapNote), P(strat.join(' ')), ...smHtml, cb ? P(cb) : '', P(`<span class="muted">${esc(meth)}</span>`)].join('') };
   }
   // voiceover
@@ -668,7 +668,12 @@ function smallLotGraphs() {
   const line = sold.length
     ? `Homes on lots under ${lot} sq ft are counted on their own. ${sold.length} sold in the last 90 days at a median $${Math.round(m(sold.map((r) => r.ppsf)))} per sq ft and ${Math.round(m(sold.map((r) => r.dom)))} days on market, with ${act} active and ${pen} pending now.`
     : `Homes on lots under ${lot} sq ft are counted on their own. None sold in the last 90 days; ${act} are active and ${pen} pending.`;
-  return [line, `Small lot homes vs standard lots, median price per sq ft`, `Small lot homes vs standard lots, median days on market`];
+  const std = S.all.filter((r) => r.zip === S.zip && S.types.has(cat(r)) && !isSmallLot(r) && !(Number.isFinite(r.lot) && r.lot > 0 && r.lot < AR.minLot) && r.status === 'Sold' && ago(r.sd) < 90);
+  const pair = (fa, fb, fmt) => (Number.isFinite(fa) && Number.isFinite(fb) ? miniChart({ kind: 'vs', labels: ['Small lot', 'Standard lots'], values: [fb, fa], fmt, base: 0 }) : '');
+  const ppsfA = m(std.map((r) => r.ppsf)), ppsfB = m(sold.map((r) => r.ppsf)), domA = m(std.map((r) => r.dom)), domB = m(sold.map((r) => r.dom));
+  return [line,
+    { t: `Small lot homes vs standard lots, median price per sq ft, last 90 days`, svg: pair(ppsfA, ppsfB, (v) => '$' + Math.round(v)) },
+    { t: `Small lot homes vs standard lots, median days on market, last 90 days`, svg: pair(domA, domB, (v) => Math.round(v) + 'd') }];
 }
 function stripHTML(h) { return new DOMParser().parseFromString(String(h), 'text/html').body.textContent; }
 
@@ -866,7 +871,8 @@ function areaCopy(M) {
   const p4 = lz ? (lz.sold
     ? `Small lot homes, on lots under ${AR.minLot.toLocaleString()} square feet, are counted on their own so they do not move the neighborhood medians. Of these, ${lz.sold} sold ${WP} at a median ${d$(lz.soldPpsf)} per square foot and ${d$(lz.medSold)}, against ${d$(z.soldPpsf)} and ${d$(z.medSold)} on standard lots. They took a median ${num(lz.soldDom)} days on market, with ${lz.active} active and ${lz.pending} pending now.${lz.sold < AR.minRank ? ` With only ${lz.sold} sales, read these figures as directional.` : ''}`
     : `Small lot homes, on lots under ${AR.minLot.toLocaleString()} square feet, are counted on their own. None sold ${WP}; ${lz.active} are active and ${lz.pending} pending.`) : '';
-  return { headline, subhead, p1, p2, p3, p4, fig1, fig2, fig3, red, notes1: priceNotes(M), notes2: domNotes(M) };
+  const fig4 = lz && lz.sold ? `Fig. 4: Small lot homes against homes on lots ${AR.minLot.toLocaleString()} sq ft and up, median price per square foot and median days on market, ${WPc}.` : '';
+  return { headline, subhead, p1, p2, p3, p4, fig1, fig2, fig3, fig4, red, notes1: priceNotes(M), notes2: domNotes(M) };
 }
 
 function lotNote() { return AR.lotFilter && S.hasLot ? `, lots ${AR.minLot.toLocaleString()} sq ft and up` : ''; }
@@ -885,7 +891,7 @@ function compareRows(M) {
 function smallLotText(M, C) {
   if (!M.smallLot) return [];
   const lbl = `lots ${AR.minLot.toLocaleString()}+ sq ft`, sl = `under ${AR.minLot.toLocaleString()} sq ft`;
-  return [`Small lot homes (lots under ${AR.minLot.toLocaleString()} sq ft)`, C.p4,
+  return [`Small lot homes (lots under ${AR.minLot.toLocaleString()} sq ft)`, C.p4, ...(C.fig4 ? [C.fig4] : []),
     ...compareRows(M).map(([k, a, b]) => `${k}: ${a} on ${lbl}; ${b} on lots ${sl}`),
     ...M.smallLot.nbs.map((n) => `${n.name}: ${n.sold} sold, ${n.active} active, ${n.pending} pending${Number.isFinite(n.soldPpsf) ? '; ' + d$(n.soldPpsf) + ' per sq ft sold' : ''}`)];
 }
@@ -921,6 +927,25 @@ function stacked(M) {
     return `<text x="${L - 16}" y="${y + bh / 2 + 7}" text-anchor="end" font-size="22" fill="${INK}">${esc(n.name)}</text>${segs}`;
   }).join('');
   return svgWrap(W, H, `Active, pending and sold by neighborhood`, legend + bars);
+}
+// Fig. 4: small lot vs standard lot, two side-by-side panels (median $/sq ft, median days on market)
+function smallLotChart(M) {
+  const a = M.zip, b = M.smallLot.zip, W = 1200, H = 675;
+  const lab = [`Lots ${AR.minLot.toLocaleString()}+ sq ft`, `Under ${AR.minLot.toLocaleString()} sq ft`];
+  const panel = (x0, title, va, vb, fmt) => {
+    const pw = 500, base = 560, top = 190, max = Math.max(va || 0, vb || 0, 1) * 1.1, bw = 150, gap = 70, bx = x0 + (pw - (bw * 2 + gap)) / 2;
+    const bar = (v, i) => { if (!Number.isFinite(v)) return ''; const h = (base - top) * v / max, x = bx + i * (bw + gap), c = i ? RED : INK;
+      return `<rect x="${x}" y="${base - h}" width="${bw}" height="${h}" fill="${c}"/><text x="${x + bw / 2}" y="${base - h - 14}" text-anchor="middle" font-size="30" font-weight="700" fill="${c}">${fmt(v)}</text><text x="${x + bw / 2}" y="${base + 34}" text-anchor="middle" font-size="20" fill="${INK}">${esc(lab[i])}</text>`; };
+    return `<text x="${x0 + pw / 2}" y="140" text-anchor="middle" font-size="26" font-weight="700" fill="${INK}">${esc(title)}</text>${bar(va, 0)}${bar(vb, 1)}<line x1="${x0}" y1="${base}" x2="${x0 + pw}" y2="${base}" stroke="${RULE}" stroke-width="2"/>`;
+  };
+  const note = `${a.sold} standard lot sales and ${b.sold} small lot sales. Each group is figured on its own.${b.sold < AR.minRank ? ` With ${b.sold} small lot sales, read as directional.` : ''}`;
+  return svgWrap(W, H, 'Small lot homes vs standard lots', panel(60, 'Median sold price per sq ft', a.soldPpsf, b.soldPpsf, d$) + panel(640, 'Median days on market', a.soldDom, b.soldDom, (x) => num(x) + ' days') +
+    `<text x="40" y="${H - 44}" font-size="17" fill="${MUTED}">${esc(note)}</text>`);
+}
+// article preview: the copy text with each chart shown above its caption
+function articlePreview(M, C) {
+  const figs = { [C.fig1]: 'ar-fig1', [C.fig2]: 'ar-fig2', [C.fig3]: 'ar-fig3' }; if (C.fig4) figs[C.fig4] = 'ar-fig4';
+  return articleText(M, C).split('\n\n').map((t) => (figs[t] && $('#' + figs[t]) ? `<div class="ar-inline-fig">${$('#' + figs[t]).innerHTML}</div>` : '') + `<p>${esc(t)}</p>`).join('');
 }
 function svgWrap(W, H, title, body) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" font-family="Georgia, 'Source Serif 4', serif" role="img" aria-label="${esc(title)}">
@@ -995,7 +1020,7 @@ function renderArea(rs) {
       <div class="table-wrap"><table class="data" data-testid="table-area-smalllot"><thead><tr><th>Neighborhood</th><th>Active</th><th>Pending</th><th>Sold</th><th>Sold $/sq ft</th><th>Active list $/sq ft</th><th>Sold DOM</th><th>Active DOM</th></tr></thead>
       <tbody>${M.smallLot.nbs.map((n) => `<tr>${cell(n)}</tr>`).join('')}</tbody><tfoot><tr>${cell(M.smallLot.zip)}</tr></tfoot></table></div></div>` : ''}
     <div class="ar-charts">
-      ${[['cover', 'Cover 1920×1080'], ['fig1', 'Fig. 1 Price per sq ft'], ['fig2', 'Fig. 2 Days on market'], ['fig3', 'Fig. 3 Pipeline']].map(([k, l]) => `<figure class="ar-fig" data-testid="figure-area-${k}"><div class="ar-svg" id="ar-${k}"></div><figcaption><span>${l}</span><button class="btn ghost" data-png="${k}" data-testid="button-png-${k}">Download PNG</button></figcaption></figure>`).join('')}
+      ${[['cover', 'Cover 1920×1080'], ['fig1', 'Fig. 1 Price per sq ft'], ['fig2', 'Fig. 2 Days on market'], ['fig3', 'Fig. 3 Pipeline'], ...(C.fig4 ? [['fig4', 'Fig. 4 Small lot vs standard lots']] : [])].map(([k, l]) => `<figure class="ar-fig" data-testid="figure-area-${k}"><div class="ar-svg" id="ar-${k}"></div><figcaption><span>${l}</span><button class="btn ghost" data-png="${k}" data-testid="button-png-${k}">Download PNG</button></figcaption></figure>`).join('')}
     </div>
     <div class="ar-carousel" data-testid="section-area-carousel"><div class="ar-article-head"><h3 class="h3">LinkedIn carousel</h3>
       <div class="ar-actions"><button class="btn" id="ar-car-pdf" data-testid="button-carousel-pdf">Print carousel PDF</button><button class="btn ghost" id="ar-car-png" data-testid="button-carousel-png">Download slides (PNG)</button></div></div>
@@ -1005,12 +1030,14 @@ function renderArea(rs) {
       <div class="ar-article-head"><h3 class="h3">LinkedIn article text</h3>
         <div class="ar-actions"><button class="btn" id="ar-copy" data-testid="button-area-copy">Copy article</button><button class="btn ghost" id="ar-md" data-testid="button-area-md">Download .md</button><button class="btn ghost" id="ar-all" data-testid="button-area-all">Download all images</button><button class="btn ghost" id="ar-print" data-testid="button-area-print">Print broadsheet</button><button class="btn accent" id="ar-queue" data-testid="button-area-queue">Add to queue</button></div></div>
       <ul class="lint ar-lint">${wc}<li class="${dash ? 'warn' : 'ok'}"><span class="mk">${dash ? 'Check' : 'OK'}</span>${dash ? 'Dash found in copy' : 'No dashes'}</li><li class="${S.isSample ? 'warn' : 'ok'}"><span class="mk">${S.isSample ? 'Check' : 'OK'}</span>${S.isSample ? 'Sample data: do not publish' : 'Real export loaded'}</li><li class="ok"><span class="mk">OK</span>No street addresses or agent names</li></ul>
-      <pre class="ar-text" id="ar-text" data-testid="text-area-article">${esc(articleText(M, C))}</pre>
+      <div class="ar-text" id="ar-text" data-testid="text-area-article"></div>
     </div>`;
   $('#ar-cover').innerHTML = coverSvg(M, C);
   $('#ar-fig1').innerHTML = hbar(M, 'soldPpsf', 'Median sold price per square foot', d$, M.top, C.notes1, true);
   $('#ar-fig2').innerHTML = hbar(M, 'soldDom', 'Median days on market, sold homes', (x) => num(x) + ' days', M.slow, C.notes2);
   $('#ar-fig3').innerHTML = stacked(M);
+  if (C.fig4) $('#ar-fig4').innerHTML = smallLotChart(M);
+  $('#ar-text').innerHTML = articlePreview(M, C);
   const slides = carouselSlides(M, C);
   $('#ar-car').innerHTML = slides.map((sv, i) => `<figure class="ar-slide" data-testid="slide-carousel-${i + 1}">${sv}</figure>`).join('');
   $('#panel-area details summary').onclick = (e) => { S.arOpen = !e.target.closest('details').open; };
@@ -1020,9 +1047,9 @@ function renderArea(rs) {
   const sm = $('#ar-small');
   if (sm) sm.onchange = () => { S.smallOff = !sm.checked; if (S.typesPresent.includes('Small lot')) { if (sm.checked) S.types.add('Small lot'); else if (S.types.size > 1) S.types.delete('Small lot'); else { sm.checked = true; S.smallOff = false; return; } } render(); };
   const stem = `${S.zip}-Neighborhood-Update-${isoDay(S.asOf)}`;
-  const png = (k) => { const svg = $('#ar-' + k + ' svg').outerHTML; const big = k === 'cover'; svgToPng(svg, `${stem}-${big ? 'Cover' : k === 'fig1' ? 'Chart-1' : k === 'fig2' ? 'Chart-2' : 'Chart-3'}.png`, big ? 1920 : 1200, big ? 1080 : 675); };
+  const png = (k) => { const svg = $('#ar-' + k + ' svg').outerHTML; const big = k === 'cover'; svgToPng(svg, `${stem}-${big ? 'Cover' : k === 'fig1' ? 'Chart-1' : k === 'fig2' ? 'Chart-2' : k === 'fig3' ? 'Chart-3' : 'Chart-4'}.png`, big ? 1920 : 1200, big ? 1080 : 675); };
   $$('#panel-area [data-png]').forEach((b) => b.onclick = () => png(b.dataset.png));
-  $('#ar-all').onclick = () => ['cover', 'fig1', 'fig2', 'fig3'].forEach((k, i) => setTimeout(() => png(k), i * 400));
+  $('#ar-all').onclick = () => ['cover', 'fig1', 'fig2', 'fig3', ...(C.fig4 ? ['fig4'] : [])].forEach((k, i) => setTimeout(() => png(k), i * 400));
   const txt = articleText(M, C);
   $('#ar-copy').onclick = async () => { try { await navigator.clipboard.writeText(txt); toast('Article copied.'); } catch { toast('Copy blocked. Use Download .md instead.'); } };
   $('#ar-md').onclick = () => dl(new Blob([txt], { type: 'text/markdown' }), `${stem}-LinkedIn.md`);
