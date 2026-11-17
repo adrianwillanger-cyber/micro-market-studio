@@ -612,6 +612,10 @@ function buildDraft() {
   const data = sigs.map((s) => s.data(V));
   const reads = sigs.map((s) => { const a = answerFor(s); return a ? `${s.interp[L]} ${a}` : s.interp[L]; });
   const strat = sigs.map((s) => s.strategy[L]);
+  // two signals of the same kind share stock sentences; keep each sentence once
+  const seen = new Set(); const once = (t) => String(t).split(/(?<=[.!?])\s+/).filter((x) => { const k = x.trim().toLowerCase(); if (!k || seen.has(k)) return false; seen.add(k); return true; }).join(' ');
+  for (let i = 0; i < reads.length; i++) reads[i] = once(reads[i]);
+  for (let i = 0; i < strat.length; i++) strat[i] = once(strat[i]);
   const cb = callback(sigs); const meth = method(sigs); const tags = hashtags(sigs);
   const gaps = sigs.filter((s) => !(S.answers[s.id] || '').trim()).length;
   const gapNote = gaps ? `<span class="gap">[Your read: answer the question${gaps > 1 ? 's' : ''} above to add local context]</span>` : '';
@@ -719,6 +723,8 @@ function renderDraft() {
   const sigs = S.selected.map((id) => S.signals.find((s) => s.id === id)).filter(Boolean);
   const d = buildDraft();
   $('#draft').innerHTML = d.html;
+  $('#print-story').hidden = S.format !== 'broadsheet';
+  $('#print-story').disabled = !sigs.length;
   const text = draftText();
   $('#lint').innerHTML = sigs.length ? lint(text, sigs).map(([ok, t]) => `<li class="${ok ? 'ok' : 'warn'}"><span class="mk">${ok ? 'OK' : 'Check'}</span><span>${esc(t)}</span></li>`).join('') : '';
 }
@@ -1198,6 +1204,27 @@ function buildPrint(M, C) {
     ${M.smallLot ? `<div class="ps-small"><div class="ps-small-h">Small lot homes, lots under ${AR.minLot.toLocaleString()} sq ft, counted on their own</div><table class="ps-table ps-cmp"><thead><tr>${['', ...compareRows(M).map((r) => r[0].replace('Median ', 'Med. ').replace('Average ', 'Avg. ').replace('days on market', 'DOM').replace('home size', 'size'))].map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody><tr><td>Lots ${AR.minLot.toLocaleString()}+</td>${compareRows(M).map((r) => `<td>${esc(String(r[1]).replace(' sq ft', ''))}</td>`).join('')}</tr><tr><td>Under ${AR.minLot.toLocaleString()}</td>${compareRows(M).map((r) => `<td>${esc(String(r[2]).replace(' sq ft', ''))}</td>`).join('')}</tr></tbody></table></div>` : ''}
     <div class="ps-foot"><div class="ps-contact">${contact}</div><div class="ps-method">${esc(sourceLine(M))}</div></div>`;
 }
+
+// broadsheet story as a one-page print sheet, charts included, unanswered-question notes left out
+function buildStoryPrint() {
+  const el = document.createElement('div'); el.innerHTML = buildDraft().html;
+  $$('.gap, .cc', el).forEach((x) => x.remove());
+  $$('button.ev', el).forEach((x) => x.replaceWith(document.createTextNode(x.textContent)));
+  const take = (sel) => { const x = $(sel, el); if (x) x.remove(); return x; };
+  const hl = take('.hl'); take('.kicker');
+  const dek = el.firstElementChild && el.firstElementChild.querySelector('em') ? el.firstElementChild : null; if (dek) dek.remove();
+  const meth = $$('p', el).filter((p) => p.querySelector('.muted')).pop(); if (meth) meth.remove();
+  const first = el.querySelector(':scope > p'); if (first && /^[A-Za-z]/.test(first.textContent.trim())) first.classList.add('ps-drop');
+  const contact = [AR.name, [AR.role, AR.firm].filter(Boolean).join(', '), AR.phone, AR.email, AR.web, AR.license].filter(Boolean).map(esc).join('<br/>');
+  $('#print-sheet').innerHTML = `
+    <div class="ps-strip"><span>${esc(AR.issue)}</span><span>${esc(AR.city)}</span><span>${esc(fmtDate(S.asOf))}</span></div>
+    <div class="ps-kicker">${esc(S.zip)} Market Update</div>
+    <h1 class="ps-hl">${hl ? esc(hl.textContent) : ''}</h1>
+    <div class="ps-sub">${dek ? esc(dek.textContent) : ''}</div><div class="ps-by">${esc(AR.byline)}</div>
+    <div class="ps-story">${el.innerHTML}</div>
+    <div class="ps-foot"><div class="ps-contact">${contact}</div><div class="ps-method">${meth ? esc(meth.textContent) : ''}</div></div>`;
+}
+$('#print-story').onclick = () => { document.body.classList.remove('carousel-mode'); buildStoryPrint(); window.print(); };
 
 // ---------- persistence ----------
 function saveState() {}

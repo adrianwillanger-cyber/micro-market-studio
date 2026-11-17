@@ -316,3 +316,11 @@ dialog::backdrop { background: rgba(22, 22, 22, .45); }
 .draft .story-fig { margin: var(--space-2) 0 var(--space-3); padding: var(--space-2); border: 1px solid var(--rule); background: #fff; }
 .draft .story-fig svg { display: block; width: 100%; max-width: 360px; height: auto; margin: 0 auto; }
 .draft .story-fig .ph { margin: var(--space-1) 0 0; padding: 0; border: 0; text-align: center; }
+@media print {
+  .ps-story { column-count: 2; column-gap: 18pt; column-rule: .5pt solid #CFCBC2; font-size: 10pt; line-height: 1.42; }
+  .ps-story p { margin: 0 0 6pt; }
+  .ps-story .sub { font-family: Inter, sans-serif; font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #8B1E1E; margin: 8pt 0 3pt; break-after: avoid; }
+  .ps-story .story-fig { break-inside: avoid; margin: 2pt 0 8pt; padding: 5pt 6pt 4pt; border: .5pt solid #CFCBC2; }
+  .ps-story .story-fig svg { display: block; width: 100%; height: auto; }
+  .ps-story .story-fig .ph { font-size: 7.5pt; color: #4A4842; text-align: center; margin: 3pt 0 0; }
+}
