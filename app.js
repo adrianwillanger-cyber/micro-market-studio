@@ -129,7 +129,7 @@ function ingest(text, name, isSample) {
   S.zip = S.zips[0] ? S.zips[0].zip : '';
   S.all = recs; S.hasLot = 'lot' in map; S.mapping = map; S.isSample = isSample; S.fileName = name; S.ignored = ignored;
   S.missingOptional = ['orig', 'pd', 'type', 'zip'].filter((k) => !(k in map));
-  S.typesPresent = ['Residential', 'Townhouse', 'Condo'].filter((t) => recs.some((r) => r.type === t));
+  S.typesPresent = CATS.filter((t) => recs.some((r) => cat(r) === t));
   S.types = new Set(S.typesPresent);
   S.selected = []; S.answers = {}; S.nb = null;
   render();
@@ -139,7 +139,13 @@ function showError(msg) {
 }
 
 // working set
-function rows() { return S.all.filter((r) => r.zip === S.zip && S.types.has(r.type)); }
+// small lot homes (lot under the area report's minimum, 3,000 sq ft by default) are their own group,
+// detached (Residential) homes on those lots move to Small lot; townhouses and condos keep their type
+const CATS = ['Residential', 'Townhouse', 'Condo', 'Small lot'];
+const CAT_LABEL = { Residential: 'Residential', Townhouse: 'Townhouse', Condo: 'Condo', 'Small lot': 'Small lot homes' };
+function isSmallLot(r) { return S.hasLot && r.type === 'Residential' && Number.isFinite(r.lot) && r.lot > 0 && r.lot < AR.minLot; }
+function cat(r) { return isSmallLot(r) ? 'Small lot' : r.type; }
+function rows() { return S.all.filter((r) => r.zip === S.zip && S.types.has(cat(r))); }
 function computeAsOf(rs) {
   let m = 0; rs.forEach((r) => [r.sd, r.pd, r.ld].forEach((d) => { if (d && d.getTime() > m) m = d.getTime(); }));
   return new Date(m);
@@ -465,7 +471,7 @@ function renderValidation(rs) {
     <span class="item">${st.Active} active, ${st.Pending} pending, ${st.Sold} sold, ${st.Expired} expired</span>
     <span class="item muted">${fmtDate(minD)} to ${fmtDate(S.asOf)}</span>
     <span class="item"><span class="pill ${fresh[0]}" data-testid="status-freshness">${fresh[1]}</span></span>
-    <span class="item types">${S.typesPresent.map((t) => `<label><input type="checkbox" data-type="${t}" ${S.types.has(t) ? 'checked' : ''} data-testid="checkbox-type-${t.toLowerCase()}"/>${t}</label>`).join('')}</span>
+    <span class="item types">${S.typesPresent.map((t) => `<label${t === 'Small lot' ? ` title="Lots under ${AR.minLot.toLocaleString()} sq ft, counted as their own group"` : ''}><input type="checkbox" data-type="${t}" ${S.types.has(t) ? 'checked' : ''} data-testid="checkbox-type-${t.toLowerCase().replace(/\s+/g, '-')}"/>${CAT_LABEL[t]}${t === 'Small lot' ? ` <span class="muted">(lots under ${AR.minLot.toLocaleString()} sq ft)</span>` : ''}</label>`).join('')}</span>
     ${warns.map((w) => `<span class="item"><span class="pill warn">Check</span>${esc(w)}</span>`).join('')}`;
   $('#zip-select').onchange = (e) => { S.zip = e.target.value; S.selected = []; S.nb = null; render(); };
   $$('#validation [data-type]').forEach((cb) => cb.onchange = () => {
@@ -624,13 +630,44 @@ function buildDraft() {
   }
   if (F === 'broadsheet') {
     const kicker = `${S.zip} Market Update \u00B7 ${fmtDate(S.asOf)}`;
-    return { html: [`<p class="kicker">${esc(kicker)}</p>`, `<p class="hl">${esc(sigs[0].headline)}</p>`, P(`<em>${esc({ seller: 'What sellers need to know before listing this winter.', buyer: 'Where buyers have room to move right now.', investor: 'Where the numbers point for investors.' }[L])}</em>`), ...data.map(P), P(reads.join(' ') + ' ' + gapNote), P(strat.join(' ')), cb ? P(cb) : '', P(`<span class="muted">${esc(meth)}</span>`)].join('') };
+    const G = (n, t) => `<p class="ph">[Graph ${n}: ${esc(t)}]</p>`;
+    const graphs = data.flatMap((d, i) => [P(d), G(i + 1, graphFor(sigs[i]))]);
+    const sm = smallLotGraphs();
+    const smHtml = sm.length ? [`<p class="sub">Small lot homes</p>`, P(esc(sm[0])), ...sm.slice(1).map((t, i) => G(sigs.length + i + 1, t))] : [];
+    return { html: [`<p class="kicker">${esc(kicker)}</p>`, `<p class="hl">${esc(sigs[0].headline)}</p>`, P(`<em>${esc({ seller: 'What sellers need to know before listing this winter.', buyer: 'Where buyers have room to move right now.', investor: 'Where the numbers point for investors.' }[L])}</em>`), ...graphs, P(reads.join(' ') + ' ' + gapNote), P(strat.join(' ')), ...smHtml, cb ? P(cb) : '', P(`<span class="muted">${esc(meth)}</span>`)].join('') };
   }
   // voiceover
   const body = [hookFor(sigs), ...data, reads.join(' '), strat.join(' '), cb, 'That is the read for ' + S.zip + ' this week. I will see you next Monday.'].filter(Boolean);
   const words = stripHTML(body.join(' ')).split(/\s+/).length; let t = 0;
   const cues = body.map((b) => { const w = stripHTML(b).split(/\s+/).length; const cue = `[${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}]`; t += w / 2.5; return `<p><span class="cue">${cue}</span> ${b}</p>`; });
   return { html: `<p class="kicker">Draft for your approval. Not for narration yet.</p>` + cues.join('') + (gapNote ? P(gapNote) : '') + `<p class="muted">${words} words, about ${Math.round(words / 2.5)} seconds at 150 words per minute.</p>` };
+}
+// graph placeholder text for the broadsheet story: names the chart that belongs with each signal
+function graphFor(s) {
+  const where = s.scopeName || S.zip, t = String(s.type || '');
+  const zip = /^zip_/.test(t), win = zip ? 'last 30 days vs prior 30' : 'last 60 days';
+  if (/overask/.test(t)) return `${where} share of sales over asking, ${win}`;
+  if (/dom/.test(t)) return zip ? `${S.zip} median days on market, ${win}` : `${where} median days on market vs ${S.zip}, ${win}`;
+  if (/ratio/.test(t)) return zip ? `${S.zip} median sold-to-list, ${win}` : `${where} median sold-to-list vs ${S.zip}, ${win}`;
+  if (/ppsf/.test(t)) return `${where} median price per sq ft, last 60 days vs prior 60 days`;
+  if (/absorb/.test(t)) return `${where} pending vs active listings, compared with ${S.zip}`;
+  if (/new_surge/.test(t)) return `${where} new listings by week`;
+  if (/cuts/.test(t)) return `${where} share of listings with a price cut`;
+  return `${s.headline} (signal card chart)`;
+}
+// small lot section for the broadsheet story: one summary line plus two graph placeholders
+function smallLotGraphs() {
+  if (!S.types.has('Small lot') || !S.hasLot) return [];
+  const rs = S.all.filter((r) => r.zip === S.zip && isSmallLot(r));
+  if (!rs.length) return [];
+  const sold = rs.filter((r) => r.status === 'Sold' && ago(r.sd) < 90);
+  const act = rs.filter((r) => r.status === 'Active').length, pen = rs.filter((r) => r.status === 'Pending').length;
+  const m = (a) => { const v = a.filter(Number.isFinite).sort((x, y) => x - y); return v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : NaN; };
+  const lot = AR.minLot.toLocaleString();
+  const line = sold.length
+    ? `Homes on lots under ${lot} sq ft are counted on their own. ${sold.length} sold in the last 90 days at a median $${Math.round(m(sold.map((r) => r.ppsf)))} per sq ft and ${Math.round(m(sold.map((r) => r.dom)))} days on market, with ${act} active and ${pen} pending now.`
+    : `Homes on lots under ${lot} sq ft are counted on their own. None sold in the last 90 days; ${act} are active and ${pen} pending.`;
+  return [line, `Small lot homes vs standard lots, median price per sq ft`, `Small lot homes vs standard lots, median days on market`];
 }
 function stripHTML(h) { return new DOMParser().parseFromString(String(h), 'text/html').body.textContent; }
 

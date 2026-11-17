@@ -5,6 +5,13 @@ Static browser app that turns a Realty Toolkit / NWMLS CSV export into one-ZIP s
 ## Tabs
 Signal board, What changed, Price bands, Area report, Queue
 
+## Filters
+- Residential, Townhouse, Condo, and Small lot homes (detached homes on lots under 3,000 sq ft, shown when the export has a lot size column). Each home falls in one group only.
+
+## Broadsheet story
+- Graph placeholders after each signal, for example `[Graph 1: Cedar Park median days on market vs 98125, last 60 days]`
+- A Small lot homes paragraph with two graph placeholders when that filter is on
+
 ## Area report outputs
 - Neighborhood table and three charts (price per sq ft, days on market, pipeline)
 - Anomaly marks: `*` fewer than 6 sales, `**` home size moves the median 3% or more, `***` highest $/sq ft is 3x the lowest or more
