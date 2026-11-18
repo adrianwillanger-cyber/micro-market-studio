@@ -34,7 +34,7 @@ Then open http://localhost:8765/studio.html. Sessions are saved and loaded as a 
 
 ## Charts in reports
 
-- Area report: the LinkedIn article preview shows each chart above its Fig. caption. Copied text and the .md download stay free of chart placeholders.
+- Area report: the LinkedIn article preview shows each chart above its Fig. caption. Copied text stays free of chart placeholders.
 - Fig. 4, Small lot homes vs standard lots (median $/sq ft and median days on market), appears when small lot homes sold. It has its own PNG download and is part of Download all images.
 - Broadsheet story format: each signal paragraph is followed by a small chart with its Graph caption, and the small lot section has two comparison charts covering the last 90 days.
 

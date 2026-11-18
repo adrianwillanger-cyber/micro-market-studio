@@ -1034,7 +1034,7 @@ function renderArea(rs) {
       <div class="ar-car-strip" id="ar-car"></div></div>
     <div class="ar-article">
       <div class="ar-article-head"><h3 class="h3">LinkedIn article text</h3>
-        <div class="ar-actions"><button class="btn" id="ar-copy" data-testid="button-area-copy">Copy article</button><button class="btn ghost" id="ar-md" data-testid="button-area-md">Download .md</button><button class="btn ghost" id="ar-all" data-testid="button-area-all">Download all images</button><button class="btn ghost" id="ar-print" data-testid="button-area-print">Print broadsheet</button><button class="btn accent" id="ar-queue" data-testid="button-area-queue">Add to queue</button></div></div>
+        <div class="ar-actions"><button class="btn" id="ar-copy" data-testid="button-area-copy">Copy article</button><button class="btn ghost" id="ar-all" data-testid="button-area-all">Download all images</button><button class="btn ghost" id="ar-print" data-testid="button-area-print">Print broadsheet</button><button class="btn accent" id="ar-queue" data-testid="button-area-queue">Add to queue</button></div></div>
       <ul class="lint ar-lint">${wc}<li class="${dash ? 'warn' : 'ok'}"><span class="mk">${dash ? 'Check' : 'OK'}</span>${dash ? 'Dash found in copy' : 'No dashes'}</li><li class="${S.isSample ? 'warn' : 'ok'}"><span class="mk">${S.isSample ? 'Check' : 'OK'}</span>${S.isSample ? 'Sample data: do not publish' : 'Real export loaded'}</li><li class="ok"><span class="mk">OK</span>No street addresses or agent names</li></ul>
       <div class="ar-text" id="ar-text" data-testid="text-area-article"></div>
     </div>`;
@@ -1057,8 +1057,7 @@ function renderArea(rs) {
   $$('#panel-area [data-png]').forEach((b) => b.onclick = () => png(b.dataset.png));
   $('#ar-all').onclick = () => ['cover', 'fig1', 'fig2', 'fig3', ...(C.fig4 ? ['fig4'] : [])].forEach((k, i) => setTimeout(() => png(k), i * 400));
   const txt = articleText(M, C);
-  $('#ar-copy').onclick = async () => { try { await navigator.clipboard.writeText(txt); toast('Article copied.'); } catch { toast('Copy blocked. Use Download .md instead.'); } };
-  $('#ar-md').onclick = () => dl(new Blob([txt], { type: 'text/markdown' }), `${stem}-LinkedIn.md`);
+  $('#ar-copy').onclick = async () => { try { await navigator.clipboard.writeText(txt); toast('Article copied.'); } catch { toast('Copy blocked by the browser. Select the article text and copy it by hand.'); } };
   $('#ar-print').onclick = () => { document.body.classList.remove('carousel-mode'); buildPrint(M, C); window.print(); };
   $('#ar-car-pdf').onclick = () => { $('#print-carousel').innerHTML = slides.map((sv) => `<div class="slide">${sv}</div>`).join(''); document.body.classList.add('carousel-mode'); window.print(); setTimeout(() => document.body.classList.remove('carousel-mode'), 1000); };
   $('#ar-car-png').onclick = () => slides.forEach((sv, i) => setTimeout(() => svgToPng(sv, `${stem}-Carousel-${String(i + 1).padStart(2, '0')}.png`, CW, CH), i * 400));
