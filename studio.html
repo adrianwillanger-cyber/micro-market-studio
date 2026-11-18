@@ -96,6 +96,10 @@
 
     <div class="panel" id="panel-queue" hidden data-testid="panel-queue">
       <div class="session-bar"><button class="btn ghost" id="save-session" data-testid="button-save-session">Save session file</button><label class="btn ghost" data-testid="button-load-session">Load session file<input type="file" id="session-file" accept=".json,application/json" hidden data-testid="input-session-file"/></label><span class="muted">The queue, content memory and report settings reset on reload. Save a session file to keep them.</span></div>
+      <details class="session-note" data-testid="details-session-share"><summary>Sharing work with someone else</summary>
+        <p>Each person runs the studio in their own browser, so several people can use it at once without seeing each other's data or drafts. There is no shared workspace: edits by one person do not appear for another.</p>
+        <p>To hand work off, click Save session file and send the file. The other person opens the studio, loads the same CSV export, then clicks Load session file. The session file holds the queue, content memory and report settings. It does not include the CSV, so send the export separately or have them pull the same one.</p>
+      </details>
       <h3 class="h3">Publish queue</h3>
       <div id="queue-list"></div>
       <h3 class="h3">Content memory</h3>

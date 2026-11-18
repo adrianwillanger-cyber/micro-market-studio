@@ -37,3 +37,7 @@ Then open http://localhost:8765/studio.html. Sessions are saved and loaded as a 
 - Area report: the LinkedIn article preview shows each chart above its Fig. caption. Copied text and the .md download stay free of chart placeholders.
 - Fig. 4, Small lot homes vs standard lots (median $/sq ft and median days on market), appears when small lot homes sold. It has its own PNG download and is part of Download all images.
 - Broadsheet story format: each signal paragraph is followed by a small chart with its Graph caption, and the small lot section has two comparison charts covering the last 90 days.
+
+## Sharing work between people
+
+The studio runs in each person's browser, so any number of people can use it at once; data and drafts stay on their own machine. There is no shared workspace. To hand work off, save a session file (queue, content memory, report settings) and send it; the other person loads the same CSV, then loads the session file. The CSV is not part of the session file.
