@@ -45,3 +45,7 @@ The studio runs in each person's browser, so any number of people can use it at 
 ## Your details on every report
 
 The studio no longer ships with a built-in byline. When someone loads their own MLS export, a short form asks for their full name, brokerage, title, and a phone or email (website and license line are optional). Those details go on the byline and contact block of the broadsheet, story PDF, carousel, cover and LinkedIn article. Every report export button waits until the form is complete. The name is checked against the export's Listing Agent and Selling Agent columns as a courtesy note only. Details stay in the browser tab and in the saved session file; nothing is sent to a server. Edit them any time with the button in the top right corner.
+
+## Download web page
+
+The Area report's Download web page button saves one self-contained HTML file in the style of the client report page: dateline, headline, key figures, article text, inline charts, neighborhood table, small lot section, the user's contact block and the source line. Charts are embedded as SVG, so the file has no image dependencies; only the web fonts load from Google Fonts, with Georgia as the fallback. Upload it to any website or GitHub Pages, or open it straight from the computer. Like every report export, it waits for the user's details first.

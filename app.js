@@ -911,30 +911,35 @@ function articleText(M, C) {
 }
 
 // ---- charts (SVG, locked broadsheet palette) ----
+// row geometry: keeps labels from overlapping when a ZIP has many neighborhoods
+function rowGeom(n, avail, maxBh) {
+  const pitch = Math.min(avail / Math.max(n, 1), maxBh + 12), gap = Math.min(12, pitch * 0.3);
+  return { pitch, bh: Math.min(maxBh, pitch - gap), fs: Math.max(11, Math.min(22, pitch * 0.74)) };
+}
 function hbar(M, key, title, fmt, highlight, notes = [], price = false) {
   const items = M.nbs.filter((n) => Number.isFinite(n[key]));
   const W = 1200, H = 675, L = 300, R = 120, T = 120, B = 50 + 26 * notes.length;
-  const bh = Math.min(56, (H - T - B) / Math.max(items.length, 1) - 12);
+  const g = rowGeom(items.length, H - T - B, 56), bh = g.bh, fs = g.fs;
   const max = Math.max(...items.map((n) => n[key]), 1);
   const bars = items.map((n, i) => {
-    const y = T + i * (bh + 12), w = (W - L - R) * n[key] / max, hl = highlight && n.name === highlight.name;
-    return `<text x="${L - 16}" y="${y + bh / 2 + 7}" text-anchor="end" font-size="22" fill="${n.thin ? MUTED : INK}">${esc(n.name)}${mark(n, price) ? ' ' + mark(n, price) : ''}</text>
+    const y = T + i * g.pitch, w = (W - L - R) * n[key] / max, hl = highlight && n.name === highlight.name;
+    return `<text x="${L - 16}" y="${y + bh / 2 + fs * 0.34}" text-anchor="end" font-size="${fs.toFixed(1)}" fill="${n.thin ? MUTED : INK}">${esc(n.name)}${mark(n, price) ? ' ' + mark(n, price) : ''}</text>
       <rect x="${L}" y="${y}" width="${Math.max(w, 2)}" height="${bh}" fill="${hl ? RED : n.thin ? '#B9B4AA' : INK}"/>
-      <text x="${L + w + 12}" y="${y + bh / 2 + 8}" font-size="22" font-weight="700" fill="${hl ? RED : INK}">${fmt(n[key])}</text>`;
+      <text x="${L + w + 12}" y="${y + bh / 2 + fs * 0.36}" font-size="${fs.toFixed(1)}" font-weight="700" fill="${hl ? RED : INK}">${fmt(n[key])}</text>`;
   }).join('');
   const nt = notes.map((t, i) => `<text class="ar-note" x="40" y="${H - 44 - 26 * (notes.length - 1 - i)}" font-size="17" fill="${MUTED}">${esc(t)}</text>`).join('');
   return svgWrap(W, H, title, bars + nt);
 }
 function stacked(M) {
   const items = M.nbs, W = 1200, H = 675, L = 300, R = 80, T = 150, B = 50;
-  const bh = Math.min(52, (H - T - B) / Math.max(items.length, 1) - 12);
+  const g = rowGeom(items.length, H - T - B, 52), bh = g.bh, fs = g.fs, ifs = Math.min(20, bh * 0.82);
   const max = Math.max(...items.map((n) => n.active + n.pending + n.sold), 1);
   const cols = [['active', INK, 'Active'], ['pending', '#8C877D', 'Pending'], ['sold', RED, 'Sold']];
   const legend = cols.map(([, c, l], i) => `<rect x="${L + i * 170}" y="96" width="22" height="22" fill="${c}"/><text x="${L + i * 170 + 32}" y="115" font-size="22" fill="${INK}">${l}</text>`).join('');
   const bars = items.map((n, i) => {
-    const y = T + i * (bh + 12); let x = L;
-    const segs = cols.map(([k, c]) => { const w = (W - L - R) * n[k] / max; const s = `<rect x="${x}" y="${y}" width="${w}" height="${bh}" fill="${c}"/>` + (w > 34 ? `<text x="${x + w / 2}" y="${y + bh / 2 + 8}" text-anchor="middle" font-size="20" font-weight="700" fill="#fff">${n[k]}</text>` : ''); x += w; return s; }).join('');
-    return `<text x="${L - 16}" y="${y + bh / 2 + 7}" text-anchor="end" font-size="22" fill="${INK}">${esc(n.name)}</text>${segs}`;
+    const y = T + i * g.pitch; let x = L;
+    const segs = cols.map(([k, c]) => { const w = (W - L - R) * n[k] / max; const s = `<rect x="${x}" y="${y}" width="${w}" height="${bh}" fill="${c}"/>` + (w > ifs * 1.6 && ifs >= 11 ? `<text x="${x + w / 2}" y="${y + bh / 2 + ifs * 0.36}" text-anchor="middle" font-size="${ifs.toFixed(1)}" font-weight="700" fill="#fff">${n[k]}</text>` : ''); x += w; return s; }).join('');
+    return `<text x="${L - 16}" y="${y + bh / 2 + fs * 0.34}" text-anchor="end" font-size="${fs.toFixed(1)}" fill="${INK}">${esc(n.name)}</text>${segs}`;
   }).join('');
   return svgWrap(W, H, `Active, pending and sold by neighborhood`, legend + bars);
 }
@@ -1038,7 +1043,7 @@ function renderArea(rs) {
       <div class="ar-car-strip" id="ar-car"></div></div>
     <div class="ar-article">
       <div class="ar-article-head"><h3 class="h3">LinkedIn article text</h3>
-        <div class="ar-actions"><button class="btn" id="ar-copy" data-testid="button-area-copy">Copy article</button><button class="btn ghost" id="ar-all" data-testid="button-area-all">Download all images</button><button class="btn ghost" id="ar-print" data-testid="button-area-print">Print broadsheet</button><button class="btn accent" id="ar-queue" data-testid="button-area-queue">Add to queue</button></div></div>
+        <div class="ar-actions"><button class="btn" id="ar-copy" data-testid="button-area-copy">Copy article</button><button class="btn ghost" id="ar-all" data-testid="button-area-all">Download all images</button><button class="btn ghost" id="ar-print" data-testid="button-area-print">Print broadsheet</button><button class="btn ghost" id="ar-web" data-testid="button-area-web">Download web page</button><button class="btn accent" id="ar-queue" data-testid="button-area-queue">Add to queue</button></div></div>
       <ul class="lint ar-lint">${wc}<li class="${dash ? 'warn' : 'ok'}"><span class="mk">${dash ? 'Check' : 'OK'}</span>${dash ? 'Dash found in copy' : 'No dashes'}</li><li class="${S.isSample ? 'warn' : 'ok'}"><span class="mk">${S.isSample ? 'Check' : 'OK'}</span>${S.isSample ? 'Sample data: do not publish' : 'Real export loaded'}</li><li class="ok"><span class="mk">OK</span>No street addresses or other agents' names</li><li class="${profileReady() ? 'ok' : 'warn'}" data-testid="lint-profile"><span class="mk">${profileReady() ? 'OK' : 'Check'}</span>${profileReady() ? `Byline: ${esc(AR.name)}, ${esc(AR.firm)}` : 'Add your details before exporting'}</li></ul>
       <div class="ar-text" id="ar-text" data-testid="text-area-article"></div>
     </div>`;
@@ -1062,6 +1067,10 @@ function renderArea(rs) {
   $('#ar-all').onclick = () => ['cover', 'fig1', 'fig2', 'fig3', ...(C.fig4 ? ['fig4'] : [])].forEach((k, i) => setTimeout(() => png(k), i * 400));
   const txt = articleText(M, C);
   $('#ar-copy').onclick = async () => { try { await navigator.clipboard.writeText(txt); toast('Article copied.'); } catch { toast('Copy blocked by the browser. Select the article text and copy it by hand.'); } };
+  $('#ar-web').onclick = () => {
+    dl(new Blob([buildWebPage(M, C)], { type: 'text/html' }), `${S.zip}-Neighborhood-Market-Update-${isoDay(S.asOf)}.html`);
+    toast(S.isSample ? 'Web page saved. It is marked as fictional sample data.' : 'Web page saved. Open it in a browser, or upload it to your website.');
+  };
   $('#ar-print').onclick = () => { document.body.classList.remove('carousel-mode'); buildPrint(M, C); window.print(); };
   $('#ar-car-pdf').onclick = () => { $('#print-carousel').innerHTML = slides.map((sv) => `<div class="slide">${sv}</div>`).join(''); document.body.classList.add('carousel-mode'); window.print(); setTimeout(() => document.body.classList.remove('carousel-mode'), 1000); };
   $('#ar-car-png').onclick = () => slides.forEach((sv, i) => setTimeout(() => svgToPng(sv, `${stem}-Carousel-${String(i + 1).padStart(2, '0')}.png`, CW, CH), i * 400));
@@ -1208,6 +1217,88 @@ function buildPrint(M, C) {
     <div class="ps-foot"><div class="ps-contact">${contact}</div><div class="ps-method">${esc(sourceLine(M))}</div></div>`;
 }
 
+// ---------- standalone web page (one self-contained HTML file, charts inline) ----------
+const WEB_CSS = ":root { --ink:#161512; --muted:#55524b; --rule:#cfcabf; --paper:#fbfaf7; --red:#8b1e1e; --wash:#f2efe8; }\n* { box-sizing:border-box; }\nhtml { -webkit-text-size-adjust:100%; }\nbody { margin:0; font-variant-numeric:lining-nums; background:var(--paper); color:var(--ink); font:400 18px/1.6 \"Source Serif 4\", Georgia, serif; }\n.wrap { max-width:860px; margin:0 auto; padding:0 24px; }\na { color:var(--ink); text-underline-offset:3px; }\n.dateline { display:flex; justify-content:space-between; gap:12px; padding:28px 0 10px; border-bottom:3px double var(--ink); font-size:13px; letter-spacing:.14em; text-transform:uppercase; }\n.kicker { margin:36px 0 8px; text-align:center; color:var(--red); font-style:italic; font-size:20px; }\nh1 { margin:0 auto; max-width:760px; text-align:center; font:700 clamp(34px,6vw,58px)/1.08 \"Playfair Display\", Georgia, serif; letter-spacing:-.01em; text-wrap:balance; }\n.dek { margin:16px auto 0; max-width:640px; text-align:center; color:var(--muted); font-size:19px; text-wrap:balance; }\n.byline { margin:14px 0 0; text-align:center; font-style:italic; }\n.figs { display:grid; grid-template-columns:repeat(4,1fr); margin:34px 0 8px; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }\n.fig { padding:22px 10px; text-align:center; }\n.fig + .fig { border-left:1px solid var(--rule); }\n.fig b { display:block; font:700 clamp(30px,4.6vw,44px)/1.1 \"Playfair Display\", Georgia, serif; font-variant-numeric:lining-nums tabular-nums; }\n.fig span { display:block; margin-top:6px; color:var(--muted); font-size:15px; line-height:1.3; }\n.fig.red b { color:var(--red); }\narticle p { margin:0 0 1.05em; }\n.lead::first-letter { float:left; font:700 64px/0.85 \"Playfair Display\", Georgia, serif; padding:6px 10px 0 0; }\nh2 { margin:44px 0 12px; padding-top:12px; border-top:2px solid var(--ink); font:700 26px/1.2 \"Playfair Display\", Georgia, serif; }\nfigure { margin:28px 0; }\nfigure img, figure svg { display:block; width:100%; height:auto; border:1px solid var(--rule); background:#fff; }\nfigcaption { margin-top:8px; color:var(--muted); font-size:15px; line-height:1.45; }\n.tablewrap { overflow-x:auto; margin:12px 0 8px; -webkit-overflow-scrolling:touch; }\ntable { width:100%; border-collapse:collapse; font-size:16px; font-variant-numeric:lining-nums tabular-nums; }\nth, td { padding:8px 10px; border-bottom:1px solid var(--rule); text-align:right; white-space:nowrap; }\nth:first-child, td:first-child { text-align:left; }\nthead th { border-bottom:2px solid var(--ink); font-weight:600; font-size:13px; letter-spacing:.06em; text-transform:uppercase; }\ntr.dim td { color:var(--muted); }\ntr.total td { border-top:2px solid var(--ink); border-bottom:none; font-weight:700; }\n.note { color:var(--muted); font-size:15px; line-height:1.45; }\n.split { display:grid; grid-template-columns:1fr 1fr; gap:28px; margin-top:8px; }\n.split h3 { margin:0 0 6px; font:700 19px/1.3 \"Source Serif 4\", Georgia, serif; text-transform:uppercase; letter-spacing:.08em; font-size:14px; }\n.box { margin:44px 0 0; padding:26px 28px; border:2px solid var(--ink); background:#fff; display:flex; gap:24px; align-items:center; justify-content:space-between; flex-wrap:wrap; }\n.box h2 { margin:0 0 6px; padding:0; border:0; font-size:24px; }\n.box p { margin:0; }\n.btn { display:inline-block; padding:12px 18px; background:var(--ink); color:#fff; text-decoration:none; font-weight:600; font-size:16px; }\n.btn:hover, .btn:focus-visible { background:var(--red); }\n.contact { margin:26px 0 0; padding:22px 0 0; border-top:1px solid var(--rule); }\n.contact .name { font:700 22px/1.2 \"Playfair Display\", Georgia, serif; }\n.reach { display:flex; flex-wrap:wrap; gap:6px 28px; margin-top:10px; font-weight:600; }\n.reach a { text-decoration:underline; text-decoration-color:var(--red); }\n.reach a:hover, .reach a:focus-visible { color:var(--red); }\nfooter .studio-link { margin:12px 0 0; font-size:13px; }\nfooter .studio-link a { color:var(--muted); }\nfooter { margin:44px 0 0; padding:18px 0 40px; border-top:3px double var(--ink); color:var(--muted); font-size:14px; line-height:1.5; }\n@media (max-width:640px) {\n  body { font-size:17px; }\n  .wrap { padding:0 18px; }\n  .dateline span:first-child { display:none; }\n  .figs { grid-template-columns:1fr 1fr; }\n  .fig:nth-child(3) { border-left:none; }\n  .fig:nth-child(n+3) { border-top:1px solid var(--rule); }\n  .split { grid-template-columns:1fr; gap:16px; }\n  th, td { padding:7px 8px; font-size:15px; }\n  .box { padding:20px; }\n}\n.sample { margin:18px 0 0; padding:10px 14px; border:2px solid var(--red); color:var(--red); font-weight:600; text-align:center; }\n@media print { .box { display:none; } body { background:#fff; } }";
+function buildWebPage(M, C) {
+  const z = M.zip, Z = S.zip, WP = spanPhrase(M), date = fmtDate(S.asOf);
+  const hl = C.headline.split(': ').slice(1).join(': ') || C.headline;
+  const svg = (k) => { const el = $('#ar-' + k + ' svg'); return el ? el.outerHTML.replace(/ width="\d+" height="\d+"/, '') : ''; };
+  const fig = (k, cap, notes) => svg(k) ? `<figure>${svg(k)}<figcaption>${esc(cap)}${notes && notes.length ? ' ' + notes.map(esc).join(' ') : ''}</figcaption></figure>` : '';
+  const row = (n, cls) => `<tr${cls ? ` class="${cls}"` : ''}><td>${esc(n.name)}${mark(n) ? ' ' + mark(n) : ''}</td><td>${n.sold}</td><td>${n.active}</td><td>${n.pending}</td><td>${d$(n.soldPpsf)}</td><td>${num(n.soldDom)}</td></tr>`;
+  const notes = [...new Set([...C.notes1, ...C.notes2])];
+  const telHref = (p) => { const d = String(p).replace(/[^\d+]/g, ''); return d.length === 10 ? '+1' + d : d; };
+  const webHref = (w) => /^https?:\/\//i.test(w) ? w : 'https://' + w;
+  const reach = [AR.phone ? `<a href="tel:${esc(telHref(AR.phone))}">${esc(AR.phone)}</a>` : '', AR.email ? `<a href="mailto:${esc(AR.email)}">${esc(AR.email)}</a>` : '', AR.web ? `<a href="${esc(webHref(AR.web))}">${esc(AR.web.replace(/^https?:\/\//i, ''))}</a>` : ''].filter(Boolean).join('');
+  const L = M.smallLot;
+  const small = L ? `<h2>Small lot homes</h2><p>${esc(C.p4)}</p>${C.fig4 ? fig('fig4', C.fig4) : ''}
+    <div class="tablewrap"><table><thead><tr><th></th><th>Lots ${AR.minLot.toLocaleString()}+ sq ft</th><th>Lots under ${AR.minLot.toLocaleString()} sq ft</th></tr></thead><tbody>${compareRows(M).map(([k, a, b]) => `<tr><td>${esc(k)}</td><td>${esc(a)}</td><td>${esc(b)}</td></tr>`).join('')}</tbody></table></div>
+    <p class="note">Each group's medians and averages are figured separately; nothing is averaged across the two.</p>` : '';
+  const desc = `${C.subhead}. Price per square foot, days on market and listings, neighborhood by neighborhood.`;
+  const by = [AR.role, AR.firm].filter(Boolean).join(', ');
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${esc(Z)} Neighborhood Market Update, ${esc(S.asOf.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }))} | ${esc(AR.name)}</title>
+<meta name="description" content="${esc(desc)}" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="${esc(hl)}" />
+<meta property="og:description" content="${esc(desc)}" />
+<meta name="author" content="${esc(AR.name)}" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&display=swap" rel="stylesheet" />
+<style>
+${WEB_CSS}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="dateline"><span>Neighborhood Market Update</span><span>${esc(AR.city)}</span><span>${esc(date)}</span></div>
+  ${S.isSample ? '<p class="sample">Fictional sample data. Not for publication.</p>' : ''}
+  <header>
+    <p class="kicker">${esc(Z)} Neighborhood Market Update</p>
+    <h1>${esc(hl)}</h1>
+    <p class="dek">${esc(C.subhead)}</p>
+    ${AR.byline ? `<p class="byline">${esc(AR.byline)}${by && AR.byline === 'By ' + AR.name ? ', ' + esc(by) : ''}</p>` : ''}
+  </header>
+  <section class="figs" aria-label="Key figures">
+    <div class="fig"><b>${z.sold}</b><span>Homes sold ${esc(WP)}</span></div>
+    <div class="fig"><b>${d$(z.soldPpsf)}</b><span>Median sold price per sq ft</span></div>
+    <div class="fig"><b>${num(z.soldDom)}</b><span>Median days on market</span></div>
+    <div class="fig red"><b>${z.active}</b><span>Active listings, ${z.pending} pending</span></div>
+  </section>
+  <article>
+    <p class="${/^[A-Za-z]/.test(C.p1) ? 'lead' : ''}">${esc(C.p1)}</p>
+    ${fig('fig1', C.fig1)}
+    ${fig('fig2', C.fig2)}
+    <p>${esc(C.p2)}</p>
+    ${fig('fig3', C.fig3)}
+    <h2>What it means for you</h2>
+    <p>${esc(C.p3)}</p>
+    <h2>Neighborhood by neighborhood</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Neighborhood</th><th>Sold</th><th>Active</th><th>Pending</th><th>$/sq ft</th><th>Days on market</th></tr></thead>
+      <tbody>${M.nbs.map((n) => row(n, n.thin ? 'dim' : '')).join('')}${row(M.zip, 'total')}</tbody>
+    </table></div>
+    ${notes.length ? `<p class="note">Medians shown. ${notes.map(esc).join(' ')}</p>` : '<p class="note">Medians shown.</p>'}
+    ${small}
+    <div class="contact">
+      <div class="name">${esc(AR.name)}</div>
+      ${by ? `<div>${esc(by)}</div>` : ''}
+      ${reach ? `<div class="reach">${reach}</div>` : ''}
+      ${AR.license ? `<p class="note" style="margin-top:6px">${esc(AR.license)}</p>` : ''}
+      <p class="note" style="margin-top:8px">Want to know what these numbers mean for your home or your search? Reach out and I will walk you through your neighborhood.</p>
+    </div>
+  </article>
+  <footer>${esc(sourceLine(M))} Information deemed reliable but not guaranteed.</footer>
+</div>
+</body>
+</html>
+`;
+}
+
 // broadsheet story as a one-page print sheet, charts included, unanswered-question notes left out
 function buildStoryPrint() {
   const el = document.createElement('div'); el.innerHTML = buildDraft().html;
@@ -1288,7 +1379,7 @@ async function loadSample() {
 }
 
 // ---------- your details (byline and contact on every report) ----------
-const GATED = '#print-story, #ar-print, #ar-car-pdf, #ar-car-png, #ar-copy, #ar-all, #ar-queue, [data-png]';
+const GATED = '#print-story, #ar-print, #ar-web, #ar-car-pdf, #ar-car-png, #ar-copy, #ar-all, #ar-queue, [data-png]';
 function profileReady() { const t = (k) => String(AR[k] || '').trim(); return !!(t('name') && t('firm') && (t('phone') || t('email'))); }
 function agentKey(n) {
   const t = String(n || '').toLowerCase().replace(/[^a-z\s'-]/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !/^(jr|sr|ii|iii|iv)$/.test(w));
