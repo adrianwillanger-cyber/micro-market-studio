@@ -20,7 +20,10 @@
     <span class="wordmark">Micro Market Studio</span>
     <span class="brand-sub" id="brand-sub" data-testid="text-scope">Loading sample</span>
   </div>
-  <span class="sample-flag" id="sample-flag" data-testid="status-sample">Fictional sample data</span>
+  <div class="top-right">
+    <span class="sample-flag" id="sample-flag" data-testid="status-sample">Fictional sample data</span>
+    <button class="btn accent profile-chip" id="profile-chip" type="button" data-testid="button-profile">Add your details</button>
+  </div>
 </header>
 
 <section class="upload" aria-label="Data upload">
@@ -161,6 +164,29 @@
   </div>
   <p id="ev-calc"></p>
   <div class="table-wrap ev-table"><table class="data" id="ev-rows"></table></div>
+</dialog>
+
+<dialog class="profile-dlg" id="profile-dlg" aria-labelledby="profile-title" data-testid="dialog-profile">
+  <form id="profile-form" novalidate>
+    <h2 class="h2" id="profile-title">Your details for these reports</h2>
+    <p class="muted">Your name and contact details go on the byline and contact block of every report you make: broadsheet, story PDF, carousel, cover and LinkedIn article. They stay in this browser tab and in your session file. Nothing is sent to a server.</p>
+    <div class="profile-grid">
+      <label class="ar-field"><span class="label">Full name *</span><input id="pf-name" autocomplete="name" required data-testid="input-profile-name"/></label>
+      <label class="ar-field"><span class="label">Title</span><input id="pf-role" placeholder="Broker" autocomplete="organization-title" data-testid="input-profile-role"/></label>
+      <label class="ar-field"><span class="label">Brokerage *</span><input id="pf-firm" autocomplete="organization" required data-testid="input-profile-firm"/></label>
+      <label class="ar-field"><span class="label">Phone</span><input id="pf-phone" type="tel" autocomplete="tel" data-testid="input-profile-phone"/></label>
+      <label class="ar-field"><span class="label">Email</span><input id="pf-email" type="email" autocomplete="email" data-testid="input-profile-email"/></label>
+      <label class="ar-field"><span class="label">Website</span><input id="pf-web" placeholder="optional" autocomplete="url" data-testid="input-profile-web"/></label>
+      <label class="ar-field profile-wide"><span class="label">License line</span><input id="pf-license" placeholder="optional, for example Licensed Broker (WA)" data-testid="input-profile-license"/></label>
+    </div>
+    <p class="muted">* Required. Add a phone number or an email, or both.</p>
+    <p class="profile-match" id="profile-match" data-testid="text-profile-match"></p>
+    <p class="profile-err" id="profile-err" role="alert" data-testid="text-profile-error"></p>
+    <div class="profile-actions">
+      <button class="btn ghost" type="button" id="profile-cancel" data-testid="button-profile-cancel">Not now</button>
+      <button class="btn accent" type="submit" data-testid="button-profile-save">Save and continue</button>
+    </div>
+  </form>
 </dialog>
 
 <script src="app.js"></script>

@@ -41,3 +41,7 @@ Then open http://localhost:8765/studio.html. Sessions are saved and loaded as a 
 ## Sharing work between people
 
 The studio runs in each person's browser, so any number of people can use it at once; data and drafts stay on their own machine. There is no shared workspace. To hand work off, save a session file (queue, content memory, report settings) and send it; the other person loads the same CSV, then loads the session file. The CSV is not part of the session file.
+
+## Your details on every report
+
+The studio no longer ships with a built-in byline. When someone loads their own MLS export, a short form asks for their full name, brokerage, title, and a phone or email (website and license line are optional). Those details go on the byline and contact block of the broadsheet, story PDF, carousel, cover and LinkedIn article. Every report export button waits until the form is complete. The name is checked against the export's Listing Agent and Selling Agent columns as a courtesy note only. Details stay in the browser tab and in the saved session file; nothing is sent to a server. Edit them any time with the button in the top right corner.

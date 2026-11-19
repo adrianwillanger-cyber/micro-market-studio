@@ -60,7 +60,8 @@ const COLS = {
   addr: ['address', 'street address', 'full address'],
   mls: ['listing #', 'mls #', 'mls number', 'listing id', 'ml#', 'listing number'],
   lot: ['lot square footage', 'lot size', 'lot sqft', 'lot sq ft', 'lot size sqft', 'lot size (sq ft)', 'lot area'],
-  bd: ['bedrooms', 'beds', 'br'], ba: ['bathrooms', 'baths', 'ba'], yb: ['year built', 'yr built']
+  bd: ['bedrooms', 'beds', 'br'], ba: ['bathrooms', 'baths', 'ba'], yb: ['year built', 'yr built'],
+  la: ['listing agent full name', 'listing agent', 'list agent full name', 'list agent'], sa: ['selling agent full name', 'selling agent', 'buyer agent full name', 'buyer agent']
 };
 const REQUIRED = ['status', 'community', 'list', 'sold', 'ld', 'sd', 'dom', 'sq'];
 const LABELS = { status: 'Status', community: 'Community', list: 'List Price', sold: 'Sold Price', ld: 'Listing Date', sd: 'Selling Date', dom: 'DOM', sq: 'Square Footage', orig: 'Original List Price', pd: 'Pending Date', type: 'Property Type', zip: 'Zip Code' };
@@ -131,8 +132,11 @@ function ingest(text, name, isSample) {
   S.missingOptional = ['orig', 'pd', 'type', 'zip'].filter((k) => !(k in map));
   S.typesPresent = CATS.filter((t) => recs.some((r) => cat(r) === t));
   S.types = new Set(S.typesPresent); S.smallOff = false;
+  S.agents = new Map();
+  grid.slice(1).forEach((r) => ['la', 'sa'].forEach((k) => { const key = agentKey(get(r, k)); if (key) S.agents.set(key, (S.agents.get(key) || 0) + 1); }));
   S.selected = []; S.answers = {}; S.nb = null;
   render();
+  if (!isSample && !profileReady()) openProfile(null, 'New export loaded. Add your name and contact details so your reports carry your byline.');
 }
 function showError(msg) {
   $('#validation').innerHTML = `<span class="pill bad" data-testid="status-error">Upload problem</span><span>${esc(msg)}</span>`;
@@ -761,8 +765,8 @@ function setTab(t) {
 
 // ---------- one-ZIP area report ----------
 const AR = Object.assign({
-  window: 90, minRank: 6, lotFilter: true, minLot: 3000, city: 'Seattle, WA', issue: 'No. 1', byline: 'By Adrian Willanger',
-  name: 'Adrian Willanger', role: 'Broker', firm: 'Kelly Right', phone: '', email: '', web: '', license: '',
+  window: 90, minRank: 6, lotFilter: true, minLot: 3000, city: 'Seattle, WA', issue: 'No. 1', byline: '',
+  name: '', role: '', firm: '', phone: '', email: '', web: '', license: '',
   source: 'NWMLS via Realty Toolkit'
 });
 const arSave = () => {};
@@ -991,7 +995,7 @@ function coverSvg(M, C) {
 function renderArea(rs) {
   const M = areaMetrics(rs), C = areaCopy(M);
   S.area = { M, C };
-  const set = (k, v) => { AR[k] = v; arSave(); renderArea(rows()); };
+  const set = (k, v) => { if (k === 'name' && (!AR.byline || AR.byline === 'By ' + AR.name)) AR.byline = v ? 'By ' + v : ''; AR[k] = v; arSave(); updateProfileChip(); renderArea(rows()); };
   const f = (k, label, ph = '') => `<label class="ar-field"><span class="label">${label}</span><input data-ar="${k}" value="${esc(AR[k])}" placeholder="${esc(ph)}" data-testid="input-area-${k}"/></label>`;
   const a = M.audit;
   const warns = [];
@@ -1035,7 +1039,7 @@ function renderArea(rs) {
     <div class="ar-article">
       <div class="ar-article-head"><h3 class="h3">LinkedIn article text</h3>
         <div class="ar-actions"><button class="btn" id="ar-copy" data-testid="button-area-copy">Copy article</button><button class="btn ghost" id="ar-all" data-testid="button-area-all">Download all images</button><button class="btn ghost" id="ar-print" data-testid="button-area-print">Print broadsheet</button><button class="btn accent" id="ar-queue" data-testid="button-area-queue">Add to queue</button></div></div>
-      <ul class="lint ar-lint">${wc}<li class="${dash ? 'warn' : 'ok'}"><span class="mk">${dash ? 'Check' : 'OK'}</span>${dash ? 'Dash found in copy' : 'No dashes'}</li><li class="${S.isSample ? 'warn' : 'ok'}"><span class="mk">${S.isSample ? 'Check' : 'OK'}</span>${S.isSample ? 'Sample data: do not publish' : 'Real export loaded'}</li><li class="ok"><span class="mk">OK</span>No street addresses or agent names</li></ul>
+      <ul class="lint ar-lint">${wc}<li class="${dash ? 'warn' : 'ok'}"><span class="mk">${dash ? 'Check' : 'OK'}</span>${dash ? 'Dash found in copy' : 'No dashes'}</li><li class="${S.isSample ? 'warn' : 'ok'}"><span class="mk">${S.isSample ? 'Check' : 'OK'}</span>${S.isSample ? 'Sample data: do not publish' : 'Real export loaded'}</li><li class="ok"><span class="mk">OK</span>No street addresses or other agents' names</li><li class="${profileReady() ? 'ok' : 'warn'}" data-testid="lint-profile"><span class="mk">${profileReady() ? 'OK' : 'Check'}</span>${profileReady() ? `Byline: ${esc(AR.name)}, ${esc(AR.firm)}` : 'Add your details before exporting'}</li></ul>
       <div class="ar-text" id="ar-text" data-testid="text-area-article"></div>
     </div>`;
   $('#ar-cover').innerHTML = coverSvg(M, C);
@@ -1233,7 +1237,7 @@ function exportSession() {
 }
 function importSession(f) {
   const r = new FileReader();
-  r.onload = () => { try { const j = JSON.parse(String(r.result)); if (j.app !== 'micro-market-studio') throw 0; Object.assign(AR, j.settings || {}); S.queue = j.queue || []; S.memory = j.memory || S.memory; render(); toast(`Session restored: ${S.queue.length} queued, ${S.memory.length} in memory.`); } catch { toast('That is not a Micro Market Studio session file.'); } };
+  r.onload = () => { try { const j = JSON.parse(String(r.result)); if (j.app !== 'micro-market-studio') throw 0; Object.assign(AR, j.settings || {}); updateProfileChip(); S.queue = j.queue || []; S.memory = j.memory || S.memory; render(); toast(`Session restored: ${S.queue.length} queued, ${S.memory.length} in memory.`); } catch { toast('That is not a Micro Market Studio session file.'); } };
   r.readAsText(f);
 }
 
@@ -1282,6 +1286,70 @@ async function loadSample() {
   try { const res = await fetch('data/98125-sample.csv'); if (!res.ok) throw new Error(res.status); ingest(await res.text(), '98125-sample.csv', true); }
   catch (e) { showError('Could not load the sample file.'); }
 }
+
+// ---------- your details (byline and contact on every report) ----------
+const GATED = '#print-story, #ar-print, #ar-car-pdf, #ar-car-png, #ar-copy, #ar-all, #ar-queue, [data-png]';
+function profileReady() { const t = (k) => String(AR[k] || '').trim(); return !!(t('name') && t('firm') && (t('phone') || t('email'))); }
+function agentKey(n) {
+  const t = String(n || '').toLowerCase().replace(/[^a-z\s'-]/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !/^(jr|sr|ii|iii|iv)$/.test(w));
+  return t.length ? t[0] + ' ' + t[t.length - 1] : '';
+}
+function updateProfileChip() {
+  const b = $('#profile-chip'); if (!b) return;
+  const ok = profileReady();
+  b.textContent = ok ? `Reports by ${AR.name}` : 'Add your details';
+  b.title = ok ? 'Edit the name and contact details on your reports' : 'Your name and contact details go on every report';
+  b.classList.toggle('ready', ok); b.classList.toggle('accent', !ok);
+}
+function profileMatch(name) {
+  const el = $('#profile-match'); const key = agentKey(name);
+  if (!key || !S.agents || !S.agents.size || S.isSample) { el.textContent = ''; el.className = 'profile-match'; return; }
+  const n = S.agents.get(key);
+  el.className = 'profile-match' + (n ? ' ok' : '');
+  el.textContent = n ? `Matches your MLS export: this name appears as a listing or selling agent on ${n} ${n === 1 ? 'row' : 'rows'}.` : 'This name is not among the listing or selling agents in this export. That is fine if you did not list or sell these homes.';
+}
+let profileThen = null;
+function openProfile(then, msg) {
+  profileThen = then || null;
+  const map = { name: 'pf-name', role: 'pf-role', firm: 'pf-firm', phone: 'pf-phone', email: 'pf-email', web: 'pf-web', license: 'pf-license' };
+  Object.entries(map).forEach(([k, id]) => { const i = $('#' + id); i.value = AR[k] || ''; i.removeAttribute('aria-invalid'); });
+  $('#profile-err').textContent = msg || '';
+  profileMatch(AR.name);
+  const d = $('#profile-dlg'); if (!d.open) d.showModal();
+  setTimeout(() => $('#pf-name').focus(), 0);
+}
+$('#pf-name').addEventListener('input', (e) => profileMatch(e.target.value));
+$('#profile-cancel').onclick = () => { profileThen = null; $('#profile-dlg').close(); };
+$('#profile-chip').onclick = () => openProfile(null);
+$('#profile-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const v = (id) => $('#' + id).value.trim();
+  const name = v('pf-name'), firm = v('pf-firm'), phone = v('pf-phone'), email = v('pf-email');
+  const bad = [];
+  if (!name) bad.push('pf-name');
+  if (!firm) bad.push('pf-firm');
+  if (!phone && !email) bad.push('pf-phone', 'pf-email');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) bad.push('pf-email');
+  ['pf-name', 'pf-firm', 'pf-phone', 'pf-email'].forEach((id) => $('#' + id).setAttribute('aria-invalid', bad.includes(id) ? 'true' : 'false'));
+  if (bad.length) {
+    $('#profile-err').textContent = !name || !firm ? 'Add your full name and brokerage.' : !phone && !email ? 'Add a phone number or an email.' : 'Check the email address.';
+    $('#' + bad[0]).focus(); return;
+  }
+  if (!AR.byline || AR.byline === 'By ' + AR.name) AR.byline = 'By ' + name;
+  Object.assign(AR, { name, firm, phone, email, role: v('pf-role'), web: v('pf-web'), license: v('pf-license') });
+  $('#profile-dlg').close(); updateProfileChip(); render();
+  toast(`Saved. Reports now carry ${name}, ${firm}. Save a session file to keep these details next time.`);
+  const then = profileThen; profileThen = null;
+  if (then) setTimeout(() => { const el = $(then); if (el) el.click(); }, 60);
+});
+// any report export waits for the details form first
+document.addEventListener('click', (e) => {
+  const b = e.target.closest(GATED); if (!b || profileReady()) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  const tid = b.getAttribute('data-testid');
+  openProfile(tid ? `[data-testid="${tid}"]` : null, 'Add your name and contact details first. They go on every report you export.');
+}, true);
+updateProfileChip();
 $('#load-sample').onclick = loadSample;
 $('#save-session').onclick = exportSession;
 $('#session-file').onchange = (e) => { const f = e.target.files[0]; if (f) importSession(f); e.target.value = ''; };
