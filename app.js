@@ -916,9 +916,9 @@ function rowGeom(n, avail, maxBh) {
   const pitch = Math.min(avail / Math.max(n, 1), maxBh + 12), gap = Math.min(12, pitch * 0.3);
   return { pitch, bh: Math.min(maxBh, pitch - gap), fs: Math.max(11, Math.min(22, pitch * 0.74)) };
 }
-function hbar(M, key, title, fmt, highlight, notes = [], price = false) {
+function hbar(M, key, title, fmt, highlight, notes = [], price = false, hOver = 0, wOver = 0) {
   const items = M.nbs.filter((n) => Number.isFinite(n[key]));
-  const W = 1200, H = 675, L = 300, R = 120, T = 120, B = 50 + 26 * notes.length;
+  const W = wOver || 1200, H = hOver || 675, L = W < 1000 ? 250 : 300, R = 120, T = 120, B = 50 + 26 * notes.length;
   const g = rowGeom(items.length, H - T - B, 56), bh = g.bh, fs = g.fs;
   const max = Math.max(...items.map((n) => n[key]), 1);
   const bars = items.map((n, i) => {
@@ -930,8 +930,8 @@ function hbar(M, key, title, fmt, highlight, notes = [], price = false) {
   const nt = notes.map((t, i) => `<text class="ar-note" x="40" y="${H - 44 - 26 * (notes.length - 1 - i)}" font-size="17" fill="${MUTED}">${esc(t)}</text>`).join('');
   return svgWrap(W, H, title, bars + nt);
 }
-function stacked(M) {
-  const items = M.nbs, W = 1200, H = 675, L = 300, R = 80, T = 150, B = 50;
+function stacked(M, hOver = 0, wOver = 0) {
+  const items = M.nbs, W = wOver || 1200, H = hOver || 675, L = W < 1000 ? 250 : 300, R = 80, T = 150, B = 50;
   const g = rowGeom(items.length, H - T - B, 52), bh = g.bh, fs = g.fs, ifs = Math.min(20, bh * 0.82);
   const max = Math.max(...items.map((n) => n.active + n.pending + n.sold), 1);
   const cols = [['active', INK, 'Active'], ['pending', '#8C877D', 'Pending'], ['sold', RED, 'Sold']];
@@ -1201,6 +1201,18 @@ function carouselSlides(M, C) {
   return out;
 }
 
+// print charts: drawn narrower than the screen versions so labels print at a readable size,
+// and taller when a ZIP has many neighborhoods so every row keeps its own line
+function printCharts(M) {
+  const n = M.nbs.length, many = n > 14, pitch = many ? 27 : 30;
+  const hb = (top) => Math.round(top + 50 + Math.max(n, 6) * pitch);
+  return {
+    many,
+    figs: [hbar(M, 'soldPpsf', 'Median sold price per square foot', d$, M.top, [], true, hb(120), 800),
+      hbar(M, 'soldDom', 'Median days on market, sold homes', (x) => num(x) + ' days', M.slow, [], false, hb(120), 800),
+      stacked(M, hb(150), 1200)],
+  };
+}
 function buildPrint(M, C) {
   const contact = [AR.name, [AR.role, AR.firm].filter(Boolean).join(', '), AR.phone, AR.email, AR.web, AR.license].filter(Boolean).map(esc).join('<br/>');
   const cell = (n) => `<td>${esc(n.name)}${mark(n)}</td><td>${n.active}</td><td>${n.pending}</td><td>${n.sold}</td><td>${d$(n.soldPpsf)}</td><td>${d$(n.actPpsf)}</td><td>${num(n.soldDom)}</td><td>${num(n.actDom)}</td>`;
@@ -1210,11 +1222,12 @@ function buildPrint(M, C) {
     <h1 class="ps-hl">${esc(C.headline.split(': ').slice(1).join(': ') || C.headline)}</h1>
     <div class="ps-sub">${esc(C.subhead)}</div><div class="ps-by">${esc(AR.byline)}</div>
     <div class="ps-cols"><p class="${/^[A-Za-z]/.test(C.p1) ? 'ps-drop' : ''}">${esc(C.p1)}</p><p>${esc(C.p2)}</p><p>${esc(C.p3)}</p></div>
-    <div class="ps-figs${M.smallLot ? ' three' : ''}"><div>${$('#ar-fig1').innerHTML}</div><div>${$('#ar-fig2').innerHTML}</div><div>${$('#ar-fig3').innerHTML}</div></div>
+    ${(() => { const P = printCharts(M); return `<div class="ps-figs${P.many ? ' many' : ''}">${P.figs.map((sv) => `<div>${sv}</div>`).join('')}</div>
+    <div class="${P.many ? 'ps-p2 many' : 'ps-p2'}">`; })()}
     ${[...new Set([...C.notes1, ...C.notes2])].length ? `<div class="ps-notes">${[...new Set([...C.notes1, ...C.notes2])].map((t) => `<div>${esc(t)}</div>`).join('')}</div>` : ''}
     <table class="ps-table"><thead><tr><th>Neighborhood</th><th>Active</th><th>Pending</th><th>Sold</th><th>Sold $/SF</th><th>Active $/SF</th><th>Sold DOM</th><th>Active DOM</th></tr></thead><tbody>${M.nbs.map((n) => `<tr>${cell(n)}</tr>`).join('')}</tbody><tfoot><tr>${cell(M.zip)}</tr></tfoot></table>
     ${M.smallLot ? `<div class="ps-small"><div class="ps-small-h">Small lot homes, lots under ${AR.minLot.toLocaleString()} sq ft, counted on their own</div><table class="ps-table ps-cmp"><thead><tr>${['', ...compareRows(M).map((r) => r[0].replace('Median ', 'Med. ').replace('Average ', 'Avg. ').replace('days on market', 'DOM').replace('home size', 'size'))].map((h) => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody><tr><td>Lots ${AR.minLot.toLocaleString()}+</td>${compareRows(M).map((r) => `<td>${esc(String(r[1]).replace(' sq ft', ''))}</td>`).join('')}</tr><tr><td>Under ${AR.minLot.toLocaleString()}</td>${compareRows(M).map((r) => `<td>${esc(String(r[2]).replace(' sq ft', ''))}</td>`).join('')}</tr></tbody></table></div>` : ''}
-    <div class="ps-foot"><div class="ps-contact">${contact}</div><div class="ps-method">${esc(sourceLine(M))}</div></div>`;
+    <div class="ps-foot"><div class="ps-contact">${contact}</div><div class="ps-method">${esc(sourceLine(M))}</div></div></div>`;
 }
 
 // ---------- standalone web page (one self-contained HTML file, charts inline) ----------
