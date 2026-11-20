@@ -54,6 +54,17 @@ button, select, input { font: inherit; color: inherit; }
 .profile-chip.ready { background: transparent; color: var(--ink); border-color: var(--rule-strong); }
 .profile-chip.ready:hover { background: var(--surface); }
 .profile-dlg { width: min(640px, calc(100vw - 2rem)); border: 2px solid var(--rule-strong); border-radius: var(--radius); background: var(--paper); color: var(--ink); padding: var(--space-6); }
+.fix-dlg { width: min(1100px, calc(100vw - 2rem)); }
+.fix-h { font-size: var(--text-base); margin: var(--space-4) 0 var(--space-1); }
+.fix-dlg table.fix-table { table-layout: fixed; width: 100%; }
+.fix-dlg .fix-table th, .fix-dlg .fix-table td { vertical-align: top; white-space: normal !important; text-align: left; overflow-wrap: anywhere; }
+.fix-dlg .fix-table th:nth-child(1) { width: 66px; } .fix-dlg .fix-table th:nth-child(2) { width: 22%; }
+.fix-dlg .fix-table th:nth-child(3), .fix-dlg .fix-table th:nth-child(4) { width: 12%; }
+.fix-dlg .fix-table th:nth-child(6) { width: 200px; }
+.fix-dlg .fix-table .fix-why { color: var(--muted); }
+.fix-table select, .fix-table .fix-val { display: block; width: 100%; margin-bottom: 4px; }
+.fix-table .fix-val[hidden] { display: none; }
+.btn.sm { padding: 2px 10px; font-size: var(--text-xs, 12px); min-height: 0; }
 .profile-dlg::backdrop { background: rgba(22, 22, 22, .55); }
 .profile-dlg .h2 { margin-bottom: var(--space-2); }
 .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3) var(--space-4); margin: var(--space-4) 0 var(--space-2); }

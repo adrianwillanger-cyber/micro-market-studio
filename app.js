@@ -87,7 +87,7 @@ const S = {
   all: [], zips: [], zip: '', asOf: null, mapping: {}, missing: [], isSample: true, fileName: '',
   types: new Set(['Residential', 'Townhouse', 'Condo']), typesPresent: [],
   lens: 'seller', voice: 'plain', format: 'linkedin', selected: [], answers: {}, tab: 'signals', nb: null, band: 900000,
-  signals: [], held: [], ev: {}, queue: [],
+  signals: [], held: [], ev: {}, queue: [], fixes: {},
   memory: [
     { date: '2026-10-26', type: 'nb_dom', scope: 'Meadowbrook', headline: 'Meadowbrook homes going under contract in about a week', value: 7, unit: 'days', format: 'LinkedIn post' },
     { date: '2026-11-02', type: 'zip_overask', scope: 'ZIP', headline: 'Fewer 98125 homes selling over asking', value: 0.48, unit: 'share', format: 'Facebook post' }
@@ -120,6 +120,7 @@ function ingest(text, name, isSample) {
       lot: toNum(get(r, 'lot')), bd: toNum(get(r, 'bd')), ba: toNum(get(r, 'ba')), yb: toNum(get(r, 'yb'))
     };
     if (!Number.isFinite(rec.orig)) rec.orig = rec.list;
+    rec.sold0 = rec.sold;
     rec.ppsf = rec.status === 'Sold' && sq > 0 ? rec.sold / sq : NaN;
     rec.ratio = rec.status === 'Sold' && rec.list > 0 ? rec.sold / rec.list : NaN;
     rec.cut = rec.orig > rec.list * 1.001;
@@ -135,9 +136,94 @@ function ingest(text, name, isSample) {
   S.agents = new Map();
   grid.slice(1).forEach((r) => ['la', 'sa'].forEach((k) => { const key = agentKey(get(r, k)); if (key) S.agents.set(key, (S.agents.get(key) || 0) + 1); }));
   S.selected = []; S.answers = {}; S.nb = null;
+  S.fixes = S.fixes || {}; flagPrices(recs); applyFixes();
   render();
   if (!isSample && !profileReady()) openProfile(null, 'New export loaded. Add your name and contact details so your reports carry your byline.');
 }
+// ---------- typo check ----------
+// Price flags: a sold price far from its own list or original price is almost always a typo,
+// so those sales stay out of every number until reviewed. Size flags (price per sq ft far from the ZIP
+// median) usually mean a square footage error; they are shown for review but kept by default.
+const TYPO = { lo: 0.75, hi: 1.35, ppsfLo: 0.4, ppsfHi: 2 };
+function guessPrice(r) {
+  const ok = (v) => v > 0 && v / r.list >= TYPO.lo && v / r.list <= TYPO.hi;
+  const s = String(Math.round(r.sold0));
+  const tries = [[r.sold0 / 10, 'looks like an extra zero'], [r.sold0 * 10, 'looks like a missing zero'], [Number(s.slice(1)), 'looks like an extra leading digit']];
+  for (const [v, why] of tries) if (ok(v)) return { v: Math.round(v), why };
+  return null;
+}
+function flagPrices(recs) {
+  recs.forEach((r) => { r.flag = null; });
+  const sold = recs.filter((r) => r.status === 'Sold' && r.sold0 > 0);
+  sold.forEach((r) => {
+    const rl = r.list > 0 ? r.sold0 / r.list : NaN, ro = r.orig > 0 ? r.sold0 / r.orig : NaN;
+    const bad = (x) => Number.isFinite(x) && (x < TYPO.lo || x > TYPO.hi);
+    if (bad(rl) || (bad(ro) && ro > TYPO.hi)) {
+      const g = guessPrice(r);
+      r.flag = { kind: 'price', ratio: rl, why: `Sold at ${pct(rl, 0)} of list price` + (g ? `; ${g.why} (${money0(g.v)}?)` : ''), guess: g };
+    }
+  });
+  const byZip = {};
+  sold.filter((r) => !r.flag && r.sq > 0).forEach((r) => { (byZip[r.zip] = byZip[r.zip] || []).push(r.sold0 / r.sq); });
+  const zMed = {}; Object.entries(byZip).forEach(([z, v]) => { zMed[z] = median(v); });
+  sold.filter((r) => !r.flag && r.sq > 0 && zMed[r.zip]).forEach((r) => {
+    const x = r.sold0 / r.sq / zMed[r.zip];
+    if (x < TYPO.ppsfLo || x > TYPO.ppsfHi) r.flag = { kind: 'size', why: `$${Math.round(r.sold0 / r.sq)} a sq ft on ${Math.round(r.sq).toLocaleString()} sq ft, vs a ${r.zip} median of $${Math.round(zMed[r.zip])}. Check the square footage.` };
+  });
+}
+const fixKey = (r) => r.mls + '|' + r.addr;
+function applyFixes() {
+  S.all.forEach((r) => {
+    const f = S.fixes[fixKey(r)];
+    r.sold = f && f.action === 'fix' && f.value > 0 ? f.value : r.sold0;
+    r.ppsf = r.status === 'Sold' && r.sq > 0 ? r.sold / r.sq : NaN;
+    r.ratio = r.status === 'Sold' && r.list > 0 ? r.sold / r.list : NaN;
+  });
+}
+// a sale is left out when the user chose Leave out, or when a price flag has not been reviewed yet
+function excluded(r) {
+  const f = S.fixes[fixKey(r)];
+  if (f) return f.action === 'drop';
+  return !!(r.flag && r.flag.kind === 'price');
+}
+function typoSummary(zip) {
+  const fl = S.all.filter((r) => r.flag && r.zip === zip);
+  const price = fl.filter((r) => r.flag.kind === 'price'), size = fl.filter((r) => r.flag.kind === 'size');
+  const st = (r) => (S.fixes[fixKey(r)] || {}).action;
+  return { fl, price, size, open: price.filter((r) => !st(r)).length, fixed: fl.filter((r) => st(r) === 'fix').length, dropped: fl.filter((r) => excluded(r)).length };
+}
+function openFixes() {
+  const t = typoSummary(S.zip), d = $('#fix-dlg');
+  const row = (r) => {
+    const f = S.fixes[fixKey(r)] || {}, isP = r.flag.kind === 'price';
+    const act = f.action || (isP ? 'drop' : 'keep');
+    return `<tr data-key="${esc(fixKey(r))}"><td>${r.i + 2}</td><td>${esc(r.addr)}<div class="muted">${esc(r.nb)} · #${esc(r.mls)}</div></td><td>${money0(r.list)}${r.orig && r.orig !== r.list ? `<div class="muted">orig ${money0(r.orig)}</div>` : ''}</td><td><b>${money0(r.sold0)}</b></td><td class="fix-why">${esc(r.flag.why)}</td>
+      <td><select data-testid="select-fix-${esc(r.mls)}">${isP ? '' : `<option value="keep" ${act === 'keep' ? 'selected' : ''}>Keep</option>`}<option value="fix" ${act === 'fix' ? 'selected' : ''}>Fix price</option><option value="drop" ${act === 'drop' ? 'selected' : ''}>Leave out</option>${isP ? `<option value="keep" ${act === 'keep' ? 'selected' : ''}>Keep, it is real</option>` : ''}</select>
+      <input class="fix-val" inputmode="numeric" placeholder="${r.flag.guess ? 'Maybe ' + r.flag.guess.v.toLocaleString('en-US') : 'Corrected price'}" value="${f.value || ''}" ${act === 'fix' ? '' : 'hidden'} data-testid="input-fix-${esc(r.mls)}"/></td></tr>`;
+  };
+  const tbl = (rs) => `<div class="table-wrap"><table class="data fix-table"><thead><tr><th>Row</th><th>Address</th><th>List</th><th>Sold</th><th>Why flagged</th><th>Action</th></tr></thead><tbody>${rs.map(row).join('')}</tbody></table></div>`;
+  $('#fix-body').innerHTML = (t.price.length ? `<h3 class="fix-h">Sold prices that look like typos (${t.price.length})</h3><p class="muted">These sales are left out of every number until you fix or confirm them. Row numbers match your spreadsheet.</p>${tbl(t.price)}` : '')
+    + (t.size.length ? `<h3 class="fix-h">Unusual price per square foot (${t.size.length})</h3><p class="muted">Usually a square footage error, sometimes a real tiny home or teardown. Kept in the numbers unless you leave them out.</p>${tbl(t.size)}` : '');
+  $$('#fix-body select').forEach((sel) => sel.onchange = () => { const i = sel.parentElement.querySelector('.fix-val'); i.hidden = sel.value !== 'fix'; if (!i.hidden) i.focus(); });
+  $('#fix-err').textContent = '';
+  d.showModal();
+}
+function saveFixes() {
+  const next = {}; let err = '';
+  $$('#fix-body tr[data-key]').forEach((tr) => {
+    const a = tr.querySelector('select').value, v = Math.round(Number(String(tr.querySelector('.fix-val').value).replace(/[$,\s]/g, '')));
+    if (a === 'fix' && !(v > 0)) err = 'Enter a corrected price for each row set to Fix price, or choose another action.';
+    const r = S.all.find((x) => fixKey(x) === tr.dataset.key), isP = r && r.flag && r.flag.kind === 'price';
+    if (a === 'fix') next[tr.dataset.key] = { action: 'fix', value: v };
+    else if (a === 'drop') next[tr.dataset.key] = { action: 'drop' };
+    else if (isP) next[tr.dataset.key] = { action: 'keep' };
+  });
+  if (err) { $('#fix-err').textContent = err; return; }
+  S.all.filter((r) => r.flag && r.zip === S.zip).forEach((r) => { delete S.fixes[fixKey(r)]; });
+  Object.assign(S.fixes, next); applyFixes(); $('#fix-dlg').close(); render();
+  const t = typoSummary(S.zip); toast(`Saved. ${t.fixed} price${t.fixed === 1 ? '' : 's'} fixed, ${t.dropped} sale${t.dropped === 1 ? '' : 's'} left out.`);
+}
+
 function showError(msg) {
   $('#validation').innerHTML = `<span class="pill bad" data-testid="status-error">Upload problem</span><span>${esc(msg)}</span>`;
 }
@@ -150,7 +236,7 @@ const CAT_LABEL = { Residential: 'Residential', Townhouse: 'Townhouse', Condo: '
 function smallOn() { return S.typesPresent.includes('Small lot') ? S.types.has('Small lot') : !S.smallOff; }
 function isSmallLot(r) { return S.hasLot && r.type === 'Residential' && Number.isFinite(r.lot) && r.lot > 0 && r.lot < AR.minLot; }
 function cat(r) { return isSmallLot(r) ? 'Small lot' : r.type; }
-function rows() { return S.all.filter((r) => r.zip === S.zip && S.types.has(cat(r))); }
+function rows() { return S.all.filter((r) => r.zip === S.zip && S.types.has(cat(r)) && !excluded(r)); }
 function computeAsOf(rs) {
   let m = 0; rs.forEach((r) => [r.sd, r.pd, r.ld].forEach((d) => { if (d && d.getTime() > m) m = d.getTime(); }));
   return new Date(m);
@@ -470,6 +556,8 @@ function renderValidation(rs) {
   if (soldSpan < 110) warns.push(`Sold history covers ${Math.round(soldSpan)} days. 120 recommended.`);
   S.missingOptional.forEach((k) => warns.push(`No ${LABELS[k]} column` + (k === 'orig' ? ', price cut signals off.' : '.')));
   if (S.ignored) warns.push(`${S.ignored} rows with other statuses ignored.`);
+  const ty = typoSummary(S.zip);
+  const tyHtml = !ty.fl.length ? '' : `<span class="item" data-testid="status-typo"><span class="pill ${ty.open ? 'bad' : 'ok'}">${ty.open ? 'Typo check' : 'Reviewed'}</span>${ty.open ? `${ty.open} sold price${ty.open === 1 ? '' : 's'} look like typos, left out until reviewed.` : `Typo check: ${ty.fixed} fixed, ${ty.dropped} left out.`}${ty.size.length ? ` <span class="muted">${ty.size.length} unusual $/sq ft.</span>` : ''} <button class="btn ghost sm" id="review-typos" data-testid="button-review-typos">Review</button></span>`;
   $('#validation').innerHTML = `
     <span class="item"><span class="pill ok" data-testid="status-parsed">Parsed</span>${esc(S.fileName)}: ${S.all.length} rows</span>
     <span class="item">ZIP <select id="zip-select" data-testid="select-zip">${S.zips.map((z) => `<option value="${esc(z.zip)}" ${z.zip === S.zip ? 'selected' : ''}>${esc(z.zip)} (${z.n})</option>`).join('')}</select>${others ? `<span class="muted">${others} other-ZIP rows set aside</span>` : ''}</span>
@@ -477,7 +565,8 @@ function renderValidation(rs) {
     <span class="item muted">${fmtDate(minD)} to ${fmtDate(S.asOf)}</span>
     <span class="item"><span class="pill ${fresh[0]}" data-testid="status-freshness">${fresh[1]}</span></span>
     <span class="item types">${S.typesPresent.map((t) => `<label${t === 'Small lot' ? ` title="Lots under ${AR.minLot.toLocaleString()} sq ft, counted as their own group"` : ''}><input type="checkbox" data-type="${t}" ${S.types.has(t) ? 'checked' : ''} data-testid="checkbox-type-${t.toLowerCase().replace(/\s+/g, '-')}"/>${CAT_LABEL[t]}${t === 'Small lot' ? ` <span class="muted">(lots under ${AR.minLot.toLocaleString()} sq ft)</span>` : ''}</label>`).join('')}</span>
-    ${warns.map((w) => `<span class="item"><span class="pill warn">Check</span>${esc(w)}</span>`).join('')}`;
+    ${tyHtml}${warns.map((w) => `<span class="item"><span class="pill warn">Check</span>${esc(w)}</span>`).join('')}`;
+  if ($('#review-typos')) $('#review-typos').onclick = openFixes;
   $('#zip-select').onchange = (e) => { S.zip = e.target.value; S.selected = []; S.nb = null; render(); };
   $$('#validation [data-type]').forEach((cb) => cb.onchange = () => {
     if (cb.checked) S.types.add(cb.dataset.type); else if (S.types.size > 1) S.types.delete(cb.dataset.type); else cb.checked = true;
@@ -667,7 +756,7 @@ function graphFor(s) {
 // small lot section for the broadsheet story: one summary line plus two graph placeholders
 function smallLotGraphs() {
   if (!S.types.has('Small lot') || !S.hasLot) return [];
-  const rs = S.all.filter((r) => r.zip === S.zip && isSmallLot(r));
+  const rs = S.all.filter((r) => r.zip === S.zip && isSmallLot(r) && !excluded(r));
   if (!rs.length) return [];
   const sold = rs.filter((r) => r.status === 'Sold' && ago(r.sd) < 90);
   const act = rs.filter((r) => r.status === 'Active').length, pen = rs.filter((r) => r.status === 'Pending').length;
@@ -676,7 +765,7 @@ function smallLotGraphs() {
   const line = sold.length
     ? `Homes on lots under ${lot} sq ft are counted on their own. ${sold.length} sold in the last 90 days at a median $${Math.round(m(sold.map((r) => r.ppsf)))} per sq ft and ${Math.round(m(sold.map((r) => r.dom)))} days on market, with ${act} active and ${pen} pending now.`
     : `Homes on lots under ${lot} sq ft are counted on their own. None sold in the last 90 days; ${act} are active and ${pen} pending.`;
-  const std = S.all.filter((r) => r.zip === S.zip && S.types.has(cat(r)) && !isSmallLot(r) && !(Number.isFinite(r.lot) && r.lot > 0 && r.lot < AR.minLot) && r.status === 'Sold' && ago(r.sd) < 90);
+  const std = S.all.filter((r) => r.zip === S.zip && S.types.has(cat(r)) && !excluded(r) && !isSmallLot(r) && !(Number.isFinite(r.lot) && r.lot > 0 && r.lot < AR.minLot) && r.status === 'Sold' && ago(r.sd) < 90);
   const pair = (fa, fb, fmt) => (Number.isFinite(fa) && Number.isFinite(fb) ? miniChart({ kind: 'vs', labels: ['Small lot', 'Standard lots'], values: [fb, fa], fmt, base: 0 }) : '');
   const ppsfA = m(std.map((r) => r.ppsf)), ppsfB = m(sold.map((r) => r.ppsf)), domA = m(std.map((r) => r.dom)), domB = m(sold.map((r) => r.dom));
   return [line,
@@ -887,7 +976,7 @@ function areaCopy(M) {
 
 function lotNote() { return AR.lotFilter && S.hasLot ? `, lots ${AR.minLot.toLocaleString()} sq ft and up` : ''; }
 function sourceLine(M) {
-  return `Source: ${AR.source}${S.isSample ? ' (fictional sample data)' : ''}. ${S.zip}${lotNote()}. Sold listings closed ${M.audit.from ? fmtDate(M.audit.from) : ''} to ${fmtDate(S.asOf)}; active and pending as of ${fmtDate(S.asOf)}. Medians shown. Only neighborhoods with ${AR.minRank} or more sales are ranked; smaller counts are shown but not ranked.${M.smallLot ? ` Homes on lots under ${AR.minLot.toLocaleString()} sq ft are reported as their own group; medians and averages are figured separately for each group.` : ''}`;
+  return `Source: ${AR.source}${S.isSample ? ' (fictional sample data)' : ''}. ${S.zip}${lotNote()}. Sold listings closed ${M.audit.from ? fmtDate(M.audit.from) : ''} to ${fmtDate(S.asOf)}; active and pending as of ${fmtDate(S.asOf)}. Medians shown. Only neighborhoods with ${AR.minRank} or more sales are ranked; smaller counts are shown but not ranked.${M.smallLot ? ` Homes on lots under ${AR.minLot.toLocaleString()} sq ft are reported as their own group; medians and averages are figured separately for each group.` : ''}${(() => { const t = typoSummary(S.zip); return t.fixed || t.dropped ? ` Typo check: ${t.fixed} sale price${t.fixed === 1 ? '' : 's'} corrected and ${t.dropped} sale${t.dropped === 1 ? '' : 's'} left out.` : ''; })()}`;
 }
 function nbLine(n) {
   const m = mark(n); return `${n.name}${m ? ' ' + m : ''}: ${n.sold} sold, ${n.active} active, ${n.pending} pending; ${Number.isFinite(n.soldPpsf) ? d$(n.soldPpsf) + ' per sq ft sold' : 'no sales'}${Number.isFinite(n.soldDom) ? ', ' + num(n.soldDom) + ' days on market' : ''}${n.sold && n.thin && n.name.indexOf(' total') < 0 ? ' (not ranked, under ' + AR.minRank + ' sales)' : ''}`;
@@ -1336,12 +1425,12 @@ $('#print-story').onclick = () => { document.body.classList.remove('carousel-mod
 // ---------- persistence ----------
 function saveState() {}
 function exportSession() {
-  dl(new Blob([JSON.stringify({ app: 'micro-market-studio', version: 1, saved: new Date().toISOString(), settings: AR, queue: S.queue, memory: S.memory }, null, 2)], { type: 'application/json' }), `micro-market-studio-session-${isoDay(new Date())}.json`);
+  dl(new Blob([JSON.stringify({ app: 'micro-market-studio', version: 1, saved: new Date().toISOString(), settings: AR, queue: S.queue, memory: S.memory, fixes: S.fixes }, null, 2)], { type: 'application/json' }), `micro-market-studio-session-${isoDay(new Date())}.json`);
   toast('Session file saved. Load it next time to restore your queue, memory and report settings.');
 }
 function importSession(f) {
   const r = new FileReader();
-  r.onload = () => { try { const j = JSON.parse(String(r.result)); if (j.app !== 'micro-market-studio') throw 0; Object.assign(AR, j.settings || {}); updateProfileChip(); S.queue = j.queue || []; S.memory = j.memory || S.memory; render(); toast(`Session restored: ${S.queue.length} queued, ${S.memory.length} in memory.`); } catch { toast('That is not a Micro Market Studio session file.'); } };
+  r.onload = () => { try { const j = JSON.parse(String(r.result)); if (j.app !== 'micro-market-studio') throw 0; Object.assign(AR, j.settings || {}); updateProfileChip(); S.queue = j.queue || []; S.memory = j.memory || S.memory; if (j.fixes) { S.fixes = j.fixes; if (S.all) applyFixes(); } render(); toast(`Session restored: ${S.queue.length} queued, ${S.memory.length} in memory.`); } catch { toast('That is not a Micro Market Studio session file.'); } };
   r.readAsText(f);
 }
 
@@ -1385,7 +1474,7 @@ const drop = $('#drop');
 ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) readFile(f); });
 $('#file').onchange = (e) => { const f = e.target.files[0]; if (f) readFile(f); e.target.value = ''; };
-function readFile(f) { const r = new FileReader(); r.onload = () => ingest(String(r.result), f.name, /sample/i.test(f.name)); r.readAsText(f); }
+function readFile(f) { const r = new FileReader(); r.onload = () => ingest(String(r.result), f.name, /^98125-sample( ?\(\d+\))?\.csv$/i.test(f.name)); r.readAsText(f); }
 async function loadSample() {
   try { const res = await fetch('data/98125-sample.csv'); if (!res.ok) throw new Error(res.status); ingest(await res.text(), '98125-sample.csv', true); }
   catch (e) { showError('Could not load the sample file.'); }
@@ -1456,6 +1545,8 @@ document.addEventListener('click', (e) => {
 updateProfileChip();
 $('#load-sample').onclick = loadSample;
 $('#save-session').onclick = exportSession;
+$('#fix-save').onclick = saveFixes;
+$('#fix-cancel').onclick = () => $('#fix-dlg').close();
 $('#session-file').onchange = (e) => { const f = e.target.files[0]; if (f) importSession(f); e.target.value = ''; };
 loadSample();
 })();
