@@ -168,7 +168,7 @@ function flagPrices(recs) {
   const zMed = {}; Object.entries(byZip).forEach(([z, v]) => { zMed[z] = median(v); });
   sold.filter((r) => !r.flag && r.sq > 0 && zMed[r.zip]).forEach((r) => {
     const x = r.sold0 / r.sq / zMed[r.zip];
-    if (x < TYPO.ppsfLo || x > TYPO.ppsfHi) r.flag = { kind: 'size', why: `$${Math.round(r.sold0 / r.sq)} a sq ft on ${Math.round(r.sq).toLocaleString()} sq ft, vs a ${r.zip} median of $${Math.round(zMed[r.zip])}. Check the square footage.` };
+    if (x < TYPO.ppsfLo || x > TYPO.ppsfHi) r.flag = { kind: 'size', why: `$${Math.round(r.sold0 / r.sq).toLocaleString()} a sq ft on ${Math.round(r.sq).toLocaleString()} sq ft, vs a ${r.zip} median of $${Math.round(zMed[r.zip])}. Check the square footage.` };
   });
 }
 const fixKey = (r) => r.mls + '|' + r.addr;
