@@ -572,6 +572,7 @@ function score(s) {
   const nov = recent ? 0.6 : 1;
   const fit = s.fit[S.lens];
   s.why = `Size ${Math.round(s.mag * 100)} x sample ${confMult} x novelty ${nov} x ${S.lens} fit ${fit}`;
+  s.parts = { size: Math.round(s.mag * 100), confMult, nov, fit };
   return Math.max(1, Math.min(99, Math.round(s.mag * 90 * confMult * nov * fit)));
 }
 
@@ -667,12 +668,22 @@ function renderKPIs(rs) {
   $('#kpis').innerHTML = k.map(([l, v, dd], i) => `<div class="kpi" data-testid="kpi-${i}"><div class="label">${l}</div><div class="v">${v}</div>${dd}</div>`).join('');
 }
 
+function scoreTip(s) {
+  const p = s.parts || {}, aud = { seller: 'sellers', buyer: 'buyers', investor: 'investors' }[S.lens];
+  const samp = { 1: 'Solid sample, 12 or more sales (x 1)', 0.72: 'Smaller sample, 6 to 11 sales (x 0.72)', 0.35: 'Too few sales, under 6 (x 0.35)' }[p.confMult] || '';
+  return `<span class="score-tip" role="tooltip" id="tip-${esc(s.id)}"><b>How strong this is as a post, from 1 to 99.</b> Cards are ranked by it. 60 and up shows in red.
+    <span class="tip-row"><span>Size of the difference</span><span>${p.size} of 100</span></span>
+    <span class="tip-row"><span>${samp}</span><span></span></span>
+    <span class="tip-row"><span>${p.nov === 1 ? 'Not posted in the last 4 weeks (x 1)' : 'Posted in the last 4 weeks (x 0.6)'}</span><span></span></span>
+    <span class="tip-row"><span>Fit for ${aud}</span><span>x ${p.fit}</span></span>
+    <span class="tip-foot">Change the audience lens and the scores change.</span></span>`;
+}
 function card(s, rank, held) {
   const sel = S.selected.includes(s.id);
   const memTag = s.memory ? `<span class="tag memory">Posted ${shortDate(new Date(s.memory.date + 'T12:00:00Z'))}</span>` : '';
   return `<article class="card ${sel ? 'selected' : ''}" data-testid="card-signal-${esc(s.id)}">
     <div class="card-top"><div><div class="rank">${held ? 'Watching' : '#' + rank} · ${esc(s.scope === 'ZIP' ? S.zip + ' overall' : s.scopeName)}</div><h3>${esc(s.headline)}</h3></div>
-      <div class="score ${s.score >= 60 ? 'hot' : ''}" title="${esc(s.why)}"><span class="n" data-testid="text-score-${esc(s.id)}">${s.score}</span><span class="l">Story score</span></div></div>
+      <div class="score ${s.score >= 60 ? 'hot' : ''}" tabindex="0" aria-describedby="tip-${esc(s.id)}" data-testid="score-${esc(s.id)}"><span class="n" data-testid="text-score-${esc(s.id)}">${s.score}</span><span class="l">Story score <span class="q" aria-hidden="true">?</span></span>${scoreTip(s)}</div></div>
     ${miniChart(s.chart)}
     <p class="finding">${esc(s.finding)}</p>
     <div class="badges"><span class="tag conf-${s.conf.toLowerCase()}">${s.conf === 'Hold' ? 'Too few sales' : s.conf}, n=${s.n}</span>${s.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}${memTag}</div>
