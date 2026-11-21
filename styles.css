@@ -379,3 +379,4 @@ dialog::backdrop { background: rgba(22, 22, 22, .45); }
 .yoy td:first-child { font-weight: 600; }
 .yoy .up { color: var(--ink); } .yoy .down { color: var(--accent); }
 .small { font-size: 12px; }
+.trend-summary { font-family: var(--font-serif, Georgia, serif); font-size: 15px; line-height: 1.5; margin: var(--space-2) 0 var(--space-3); max-width: 72ch; }

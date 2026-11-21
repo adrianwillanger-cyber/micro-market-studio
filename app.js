@@ -802,6 +802,46 @@ function yoyStats(rs, days) {
   const to = new Date(S.asOf.getTime() + DAY), rate = (a) => rateAvg(new Date(to - (a + days) * DAY), new Date(to - a * DAY));
   return { cur: Object.assign(f(cur), { rate: rate(0) }), pri: Object.assign(f(pri), { rate: rate(365) }) };
 }
+// plain-language read of the Trends tab, written from the selected ZIP, property types and window
+function trendSummary(rs, ms, y, W, span, lastRate) {
+  const TL = { Residential: 'houses', Townhouse: 'townhouses', Condo: 'condos', 'Small lot': 'small lot homes' };
+  const on = S.typesPresent.filter((t) => S.types.has(t)).map((t) => TL[t]);
+  const what = on.length === S.typesPresent.length && on.length > 1 ? 'homes' : on.length === 1 ? on[0] : on.slice(0, -1).join(', ') + ' and ' + on[on.length - 1];
+  const list = (a) => a.length < 3 ? a.join(' and ') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+  const mixNote = on.length > 1 && on.length === S.typesPresent.length ? ` This counts ${list(on)} together.` : '';
+  const per = W === 365 ? ['the last 12 months', 'the year before'] : ['the last 3 months', 'the same 3 months last year'];
+  const P = (a, b) => (a - b) / b;
+  const move = (d, unit) => !Number.isFinite(d) ? 'with no comparison' : Math.abs(d) < 0.01 ? 'about the same as a year ago' : `${d > 0 ? 'up' : 'down'} ${(Math.abs(d) * 100).toFixed(1)}%`;
+  const out = [];
+  if (!y) {
+    const total = ms.reduce((a, m) => a + m.n, 0);
+    out.push(`In ${S.zip}, ${total} ${what} closed in the ${Math.round(span)} days covered by this file.${mixNote}`);
+    const full = ms.filter((m) => !m.partial && !m.partialStart);
+    if (full.length >= 2) { const a = full[full.length - 2], b = full[full.length - 1]; out.push(`${MON[b.m]} had ${b.n} sales against ${a.n} in ${MON[a.m]}.`); }
+    if (lastRate) out.push(`The 30 year rate is ${lastRate.v.toFixed(2)}%.`);
+    out.push('Year over year needs a 730 day export.');
+    return out.join(' ');
+  }
+  const c = y.cur, p = y.pri, dn = P(c.n, p.n);
+  out.push(`In ${S.zip}, ${c.n} ${what} closed in ${per[0]}, ${Math.abs(dn) < 0.02 ? `about the same as ${W === 365 ? 'the year before' : 'a year earlier'} (${p.n})` : `${dn > 0 ? 'up' : 'down'} from ${p.n} ${W === 365 ? 'the year before' : 'in the same months last year'}`}.${mixNote}`);
+  const dp = P(c.med, p.med), dq = P(c.ppsf, p.ppsf);
+  if (Number.isFinite(dp)) out.push(`The median sold price is ${money0(c.med)}, ${move(dp)}, and price per square foot is ${move(dq)}.`);
+  if (Number.isFinite(dp) && Number.isFinite(dq) && Math.abs(dp - dq) >= 0.03) out.push(`Price per square foot moved ${Math.abs(dq) < Math.abs(dp) ? 'less' : 'more'} than the median price, which points to a change in the mix of ${what} that sold, not only a change in value.`);
+  const dd = c.dom - p.dom;
+  const Cap = what[0].toUpperCase() + what.slice(1);
+  if (Number.isFinite(dd)) out.push(Math.abs(dd) <= 1 ? `${Cap} are selling about as fast as a year ago, a median of ${num(c.dom)} days.` : `${Cap} are selling ${dd > 0 ? 'more slowly' : 'faster'}: a median of ${num(c.dom)} days, against ${num(p.dom)} a year ago.`);
+  const dov = c.over - p.over;
+  if (Number.isFinite(dov)) out.push(`${pct(c.over)} sold over asking, ${Math.abs(dov) < 0.02 ? 'about the same as' : dov > 0 ? 'up from' : 'down from'} ${pct(p.over)}.`);
+  const last12 = ms.filter((m) => !m.partial && !m.partialStart).slice(-12);
+  if (last12.length >= 6) { const top = last12.reduce((a, m) => (m.n > a.n ? m : a)); out.push(`The busiest of the last 12 months was ${MON[top.m]} ${top.y}, with ${top.n} sales.`); }
+  if (Number.isFinite(c.rate)) {
+    const dr = c.rate - p.rate;
+    let t = `The 30 year rate averaged ${c.rate.toFixed(2)}%, ${Math.abs(dr) < 0.15 ? `close to ${p.rate.toFixed(2)}%` : `${dr > 0 ? 'up' : 'down'} from ${p.rate.toFixed(2)}%`} ${W === 365 ? 'the year before' : 'a year earlier'}`;
+    if (lastRate) t += `, and was ${lastRate.v.toFixed(2)}% in the week of ${fmtDate(lastRate.d)}`;
+    out.push(t + '.');
+  }
+  return out.join(' ');
+}
 function renderTrends(rs) {
   const el = $('#panel-trends'); if (!el) return;
   S.trendWin = S.trendWin || 365;
@@ -865,8 +905,10 @@ function renderTrends(rs) {
       <svg viewBox="0 0 ${Wd} ${H}" role="img" aria-label="Median sold price by month, this year against last year" data-testid="chart-price-yoy">${gy.join('')}${line(prev, '#9a9a9a', true)}${line(last12, 'var(--ink)', false)}<line x1="${Lp}" x2="${Wd - R}" y1="${H - B}" y2="${H - B}" stroke="var(--ink)"/>${xl}</svg>
       <p class="muted small">Monthly medians swing with the mix of homes that closed, especially in months with fewer than 20 sales. Read the trend, not a single month.</p></div>`;
   }
+  const summary = trendSummary(rs, ms, y, W, span, lastRate);
   el.innerHTML = `<div class="trend-head"><div><div class="label">Year over year</div><p class="panel-note">Closed sales, ${S.zip}, through ${fmtDate(S.asOf)}.</p></div>
     <div class="lens"><button class="seg ${W === 365 ? 'active' : ''}" data-trend="365" data-testid="button-trend-12m">12 months</button><button class="seg ${W === 90 ? 'active' : ''}" data-trend="90" data-testid="button-trend-3m">3 months</button></div></div>
+    <p class="trend-summary" data-testid="text-trend-summary">${esc(summary)}</p>
     ${score}
     <div class="trend-card"><div class="label">Homes sold per month and the 30 year mortgage rate</div><div class="legend"><span><i class="sw ink"></i>Homes sold</span><span><i class="sw gray"></i>Partial month</span><span><i class="sw red"></i>30 year fixed rate</span></div>${c1}</div>
     ${c2}
