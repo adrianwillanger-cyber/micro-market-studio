@@ -58,6 +58,7 @@
       <button role="tab" class="tab active" data-tab="signals" data-testid="tab-signals">Signal board</button>
       <button role="tab" class="tab" data-tab="diff" data-testid="tab-diff">What changed</button>
       <button role="tab" class="tab" data-tab="bands" data-testid="tab-bands">Price bands</button>
+      <button role="tab" class="tab" data-tab="trends" data-testid="tab-trends">Trends</button>
       <button role="tab" class="tab" data-tab="area" data-testid="tab-area">Area report</button>
       <button role="tab" class="tab" data-tab="queue" data-testid="tab-queue">Queue <span id="queue-count" class="count"></span></button>
     </nav>
@@ -94,6 +95,8 @@
       <div class="band-stats" id="band-stats"></div>
       <div class="band-chart" id="band-chart"></div>
     </div>
+
+    <div class="panel" id="panel-trends" hidden data-testid="panel-trends"></div>
 
     <div class="panel" id="panel-area" hidden data-testid="panel-area"></div>
 
@@ -200,6 +203,7 @@
   </form>
 </dialog>
 
+<script src="data/rates.js"></script>
 <script src="app.js"></script>
 <script data-pplx-inline-edit>
 (function () {

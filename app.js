@@ -615,7 +615,7 @@ function render() {
   S.signals = sigs.filter((s) => s.conf !== 'Hold');
   S.held = sigs.filter((s) => s.conf === 'Hold');
   S.selected = S.selected.filter((id) => S.signals.some((s) => s.id === id));
-  renderValidation(rs); renderKPIs(rs); renderSignals(); renderDiff(rs); renderBands(rs); renderQueue(); renderBuilder(); renderFoot(rs); renderArea(rs);
+  renderValidation(rs); renderKPIs(rs); renderSignals(); renderDiff(rs); renderBands(rs); renderTrends(rs); renderQueue(); renderBuilder(); renderFoot(rs); renderArea(rs);
 }
 
 function renderValidation(rs) {
@@ -756,6 +756,105 @@ function renderBands(rs) {
     const h = (x.n / max) * (H - 36), X = i * (bw + 3), Y = H - 20 - h; const inb = x.b + step > lo && x.b < hi;
     return `<rect x="${X}" y="${Y}" width="${bw}" height="${Math.max(h, 1)}" fill="${inb ? 'var(--accent)' : 'var(--ink)'}"/>${x.n ? `<text x="${X + bw / 2}" y="${Y - 3}" font-size="11" text-anchor="middle" fill="var(--ink)">${x.n}</text>` : ''}${i % 3 === 0 ? `<text x="${X + bw / 2}" y="${H - 4}" font-size="11" text-anchor="middle" fill="var(--muted)">${money(x.b)}</text>` : ''}`;
   }).join('') + '</svg>';
+}
+
+// ---------- trends: monthly sales, prices and the 30 year rate ----------
+const RATES = (window.MMS_RATES && window.MMS_RATES.weeks || []).map(([d, v]) => ({ d: new Date(d + 'T12:00:00Z'), v }));
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function rateAvg(a, b) { const w = RATES.filter((x) => x.d >= a && x.d < b); return w.length ? w.reduce((s, x) => s + x.v, 0) / w.length : NaN; }
+function monthsOf(rs) {
+  const sold = rs.filter((r) => r.status === 'Sold' && r.sd);
+  if (!sold.length) return [];
+  const first = new Date(Math.min(...sold.map((r) => r.sd.getTime())));
+  const out = []; let y = first.getUTCFullYear(), m = first.getUTCMonth();
+  const endY = S.asOf.getUTCFullYear(), endM = S.asOf.getUTCMonth();
+  while (y < endY || (y === endY && m <= endM)) {
+    const a = new Date(Date.UTC(y, m, 1)), b = new Date(Date.UTC(y, m + 1, 1));
+    const s = sold.filter((r) => r.sd >= a && r.sd < b);
+    out.push({ y, m, a, b, n: s.length, med: median(s.map((r) => r.sold)), rate: rateAvg(a, b), partial: y === endY && m === endM, recs: s });
+    if (++m > 11) { m = 0; y++; }
+  }
+  // the first month is usually partial too (export window starts mid month)
+  if (out.length && first.getUTCDate() > 3) out[0].partialStart = true;
+  return out;
+}
+function yoyStats(rs, days) {
+  const win = (a, b) => soldIn(rs, a, b);
+  const cur = win(0, days), pri = win(365, 365 + days);
+  const f = (s) => ({ n: s.length, med: median(s.map((r) => r.sold)), ppsf: median(s.map((r) => r.ppsf)), dom: median(s.map((r) => r.dom)), ratio: median(s.map((r) => r.ratio)), over: s.length ? s.filter((r) => r.ratio > 1.0001).length / s.length : NaN, recs: s });
+  const to = new Date(S.asOf.getTime() + DAY), rate = (a) => rateAvg(new Date(to - (a + days) * DAY), new Date(to - a * DAY));
+  return { cur: Object.assign(f(cur), { rate: rate(0) }), pri: Object.assign(f(pri), { rate: rate(365) }) };
+}
+function renderTrends(rs) {
+  const el = $('#panel-trends'); if (!el) return;
+  S.trendWin = S.trendWin || 365;
+  const ms = monthsOf(rs);
+  const soldDates = rs.filter((r) => r.status === 'Sold' && r.sd).map((r) => r.sd.getTime());
+  const span = soldDates.length ? (S.asOf - Math.min(...soldDates)) / DAY : 0;
+  const lastRate = RATES[RATES.length - 1];
+  const src = `Sales: ${AR.source}${S.isSample ? ' (fictional sample data)' : ''}, ${S.zip}, property types checked above, typo and data check choices applied. Rates: 30 year fixed average, ${window.MMS_RATES ? window.MMS_RATES.source : 'not loaded'}${lastRate ? `, latest ${lastRate.v.toFixed(2)}% for the week of ${fmtDate(lastRate.d)}` : ''}. Monthly rate is the average of that month's weekly readings.`;
+  // year over year scorecard
+  const W = S.trendWin, canYoy = span >= 365 + W - 10;
+  const y = canYoy ? yoyStats(rs, W) : null;
+  const chg = (a, b, kind) => {
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return '<span class="muted">n/a</span>';
+    let d, t;
+    if (kind === 'pct') { d = (a - b) / b; t = (d >= 0 ? '+' : '') + (d * 100).toFixed(1) + '%'; }
+    else if (kind === 'pts') { d = a - b; t = (d >= 0 ? '+' : '') + (d * 100).toFixed(1) + ' pts'; }
+    else if (kind === 'rate') { d = a - b; t = (d >= 0 ? '+' : '') + d.toFixed(2) + ' pts'; }
+    else { d = a - b; t = (d >= 0 ? '+' : '') + Math.round(d) + ' days'; }
+    return `<span class="${Math.abs(d) < 1e-9 ? '' : d > 0 ? 'up' : 'down'}">${d > 0 ? '▲' : d < 0 ? '▼' : ''} ${t}</span>`;
+  };
+  const lbl = W === 365 ? ['Last 12 months', 'Prior 12 months'] : ['Last 3 months', 'Same 3 months last year'];
+  const rowsY = y ? [
+    ['Homes sold', y.cur.n, y.pri.n, String(y.cur.n), String(y.pri.n), 'pct'],
+    ['Median sold price', y.cur.med, y.pri.med, money0(y.cur.med), money0(y.pri.med), 'pct'],
+    ['Median $/sq ft', y.cur.ppsf, y.pri.ppsf, '$' + num(y.cur.ppsf), '$' + num(y.pri.ppsf), 'pct'],
+    ['Median days on market', y.cur.dom, y.pri.dom, num(y.cur.dom) + ' days', num(y.pri.dom) + ' days', 'days'],
+    ['Median sold-to-list', y.cur.ratio, y.pri.ratio, pct(y.cur.ratio, 1), pct(y.pri.ratio, 1), 'pts'],
+    ['Share sold over asking', y.cur.over, y.pri.over, pct(y.cur.over), pct(y.pri.over), 'pts'],
+    ['30 year rate, average', y.cur.rate, y.pri.rate, num(y.cur.rate, 2) + '%', num(y.pri.rate, 2) + '%', 'rate']
+  ] : [];
+  const fmtR = (d) => fmtDate(d);
+  const range = (a) => `${fmtR(new Date(S.asOf - (a + W - 1) * DAY))} to ${fmtR(new Date(S.asOf - a * DAY))}`;
+  const score = canYoy ? `<div class="table-wrap"><table class="data yoy" data-testid="table-yoy"><thead><tr><th></th><th>${lbl[0]}<div class="muted">${range(0)}</div></th><th>${lbl[1]}<div class="muted">${range(365)}</div></th><th>Change</th></tr></thead><tbody>${rowsY.map(([l, a, b, ta, tb, k]) => `<tr><td>${l}</td><td><b>${ta}</b></td><td>${tb}</td><td>${chg(a, b, k)}</td></tr>`).join('')}</tbody></table></div>`
+    : `<p class="panel-note" data-testid="text-yoy-need">Year over year needs about ${Math.round((365 + W) / 30)} months of sold history. This file covers ${Math.round(span)} days. In Realty Toolkit, set the sold date range to 730 days for full year over year.</p>`;
+  // chart 1: sales per month (bars) with the 30 year rate (red line)
+  const Wd = 720, H = 240, L = 34, R = 40, T = 22, B = 34, n = ms.length;
+  let c1 = '<p class="panel-note">No sold listings in this ZIP and property mix.</p>';
+  if (n) {
+    const bw = (Wd - L - R) / n, maxN = Math.max(...ms.map((x) => x.n), 1);
+    const rv = ms.map((x) => x.rate).filter(Number.isFinite), rLo = Math.floor(Math.min(...rv, 6) - 0.25), rHi = Math.ceil(Math.max(...rv, 7) + 0.25);
+    const yN = (v) => T + (H - T - B) * (1 - v / maxN), yR = (v) => T + (H - T - B) * (1 - (v - rLo) / (rHi - rLo));
+    const bars = ms.map((x, i) => { const X = L + i * bw + 2, Y = yN(x.n); return `<rect x="${X.toFixed(1)}" y="${Y.toFixed(1)}" width="${(bw - 4).toFixed(1)}" height="${(H - B - Y).toFixed(1)}" fill="${x.partial || x.partialStart ? '#b5b5b5' : 'var(--ink)'}"><title>${MON[x.m]} ${x.y}: ${x.n} sold${x.partial ? ' (month to date)' : x.partialStart ? ' (partial month)' : ''}, rate ${num(x.rate, 2)}%</title></rect>${n <= 26 ? `<text x="${(X + (bw - 4) / 2).toFixed(1)}" y="${(Y - 4).toFixed(1)}" font-size="10" text-anchor="middle" fill="var(--ink)">${x.n}</text>` : ''}`; }).join('');
+    const pts = ms.map((x, i) => Number.isFinite(x.rate) ? `${(L + i * bw + bw / 2).toFixed(1)},${yR(x.rate).toFixed(1)}` : null).filter(Boolean).join(' ');
+    const xl = ms.map((x, i) => (x.m % 3 === 0 || n <= 8) ? `<text x="${(L + i * bw + bw / 2).toFixed(1)}" y="${H - B + 14}" font-size="10" text-anchor="middle" fill="var(--muted)">${MON[x.m]}</text>${x.m === 0 || i === 0 ? `<text x="${(L + i * bw + bw / 2).toFixed(1)}" y="${H - B + 27}" font-size="10" text-anchor="middle" fill="var(--muted)">${x.y}</text>` : ''}` : '').join('');
+    const ry = []; for (let v = rLo; v <= rHi + 1e-9; v += 0.5) ry.push(`<text x="${Wd - R + 6}" y="${(yR(v) + 3).toFixed(1)}" font-size="10" fill="var(--accent)">${v.toFixed(1)}%</text><line x1="${L}" x2="${Wd - R}" y1="${yR(v).toFixed(1)}" y2="${yR(v).toFixed(1)}" stroke="#eee"/>`);
+    const last = ms.filter((x) => Number.isFinite(x.rate)).slice(-1)[0];
+    c1 = `<svg viewBox="0 0 ${Wd} ${H}" role="img" aria-label="Homes sold per month with the 30 year mortgage rate" data-testid="chart-sales-rates">${ry.join('')}<text x="${L - 6}" y="${T - 8}" font-size="10" fill="var(--muted)" text-anchor="start">Homes sold</text><text x="${Wd - R + 6}" y="${T - 8}" font-size="10" fill="var(--accent)">Rate</text>${bars}<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${last ? `<circle cx="${(L + ms.indexOf(last) * bw + bw / 2).toFixed(1)}" cy="${yR(last.rate).toFixed(1)}" r="3.5" fill="var(--accent)"/>` : ''}<line x1="${L}" x2="${Wd - R}" y1="${H - B}" y2="${H - B}" stroke="var(--ink)"/>${xl}</svg>`;
+  }
+  // chart 2: median sold price by month, this year vs last year
+  let c2 = '';
+  const last12 = ms.slice(-12);
+  if (canYoy && last12.length === 12) {
+    const prev = last12.map((x) => ms.find((p) => p.y === x.y - 1 && p.m === x.m));
+    const all = [...last12.map((x) => x.med), ...prev.map((p) => p && p.med)].filter(Number.isFinite);
+    const lo = Math.floor(Math.min(...all) / 50000) * 50000, hi = Math.ceil(Math.max(...all) / 50000) * 50000;
+    const bw = (Wd - L - R - 20) / 12, Lp = L + 20, yP = (v) => T + (H - T - B) * (1 - (v - lo) / (hi - lo || 1));
+    const line = (arr, col, dash) => { const p = arr.map((x, i) => x && Number.isFinite(x.med) ? `${(Lp + i * bw + bw / 2).toFixed(1)},${yP(x.med).toFixed(1)}` : null).filter(Boolean).join(' '); return `<polyline points="${p}" fill="none" stroke="${col}" stroke-width="2.5" ${dash ? 'stroke-dasharray="5 4"' : ''}/>` + arr.map((x, i) => x && Number.isFinite(x.med) ? `<circle cx="${(Lp + i * bw + bw / 2).toFixed(1)}" cy="${yP(x.med).toFixed(1)}" r="3" fill="${col}"><title>${MON[x.m]} ${x.y}: median ${money0(x.med)} on ${x.n} sales</title></circle>` : '').join(''); };
+    const gy = []; const step = (hi - lo) / 4; for (let v = lo; v <= hi + 1; v += step) gy.push(`<text x="${Lp - 6}" y="${(yP(v) + 3).toFixed(1)}" font-size="10" text-anchor="end" fill="var(--muted)">${money(v)}</text><line x1="${Lp}" x2="${Wd - R}" y1="${yP(v).toFixed(1)}" y2="${yP(v).toFixed(1)}" stroke="#eee"/>`);
+    const xl = last12.map((x, i) => `<text x="${(Lp + i * bw + bw / 2).toFixed(1)}" y="${H - B + 14}" font-size="10" text-anchor="middle" fill="var(--muted)">${MON[x.m]}</text>`).join('');
+    c2 = `<div class="trend-card"><div class="label">Median sold price by month</div><div class="legend"><span><i class="sw ink"></i>Last 12 months</span><span><i class="sw gray"></i>Year before</span></div>
+      <svg viewBox="0 0 ${Wd} ${H}" role="img" aria-label="Median sold price by month, this year against last year" data-testid="chart-price-yoy">${gy.join('')}${line(prev, '#9a9a9a', true)}${line(last12, 'var(--ink)', false)}<line x1="${Lp}" x2="${Wd - R}" y1="${H - B}" y2="${H - B}" stroke="var(--ink)"/>${xl}</svg>
+      <p class="muted small">Monthly medians swing with the mix of homes that closed, especially in months with fewer than 20 sales. Read the trend, not a single month.</p></div>`;
+  }
+  el.innerHTML = `<div class="trend-head"><div><div class="label">Year over year</div><p class="panel-note">Closed sales, ${S.zip}, through ${fmtDate(S.asOf)}.</p></div>
+    <div class="lens"><button class="seg ${W === 365 ? 'active' : ''}" data-trend="365" data-testid="button-trend-12m">12 months</button><button class="seg ${W === 90 ? 'active' : ''}" data-trend="90" data-testid="button-trend-3m">3 months</button></div></div>
+    ${score}
+    <div class="trend-card"><div class="label">Homes sold per month and the 30 year mortgage rate</div><div class="legend"><span><i class="sw ink"></i>Homes sold</span><span><i class="sw gray"></i>Partial month</span><span><i class="sw red"></i>30 year fixed rate</span></div>${c1}</div>
+    ${c2}
+    <p class="muted small" data-testid="text-trend-source">${esc(src)}</p>`;
+  $$('#panel-trends [data-trend]').forEach((b) => b.onclick = () => { S.trendWin = Number(b.dataset.trend); renderTrends(rows()); });
 }
 
 // ---------- story generation ----------
@@ -935,7 +1034,7 @@ function renderFoot(rs) {
 function setTab(t) {
   S.tab = t;
   $$('.tab').forEach((b) => { b.classList.toggle('active', b.dataset.tab === t); b.setAttribute('aria-selected', b.dataset.tab === t); });
-  ['signals', 'diff', 'bands', 'area', 'queue'].forEach((p) => { $('#panel-' + p).hidden = p !== t; });
+  ['signals', 'diff', 'bands', 'trends', 'area', 'queue'].forEach((p) => { $('#panel-' + p).hidden = p !== t; });
 }
 
 // ---------- one-ZIP area report ----------
