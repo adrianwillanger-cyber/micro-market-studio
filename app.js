@@ -56,6 +56,7 @@ const COLS = {
   dom: ['dom', 'da', 'days on market', 'cdom', 'cda'],
   sq: ['square footage', 'sqft', 'sq ft', 'living area', 'approx sqft', 'square feet'],
   type: ['property type', 'type of property', 'prop type', 'type'],
+  style: ['style code', 'style', 'architectural style code'],
   city: ['city'], stnum: ['street number'], stdir: ['street direction'], stname: ['street name'], stsuf: ['street suffix'], stpost: ['street post direction'], unit: ['unit'],
   addr: ['address', 'street address', 'full address'],
   mls: ['listing #', 'mls #', 'mls number', 'listing id', 'ml#', 'listing number'],
@@ -74,8 +75,21 @@ function normStatus(s) {
   if (/expire/.test(v)) return 'Expired';
   return null;
 }
-function normType(s) {
+// NWMLS Style Code: 30, 31, 34 condo, 32 townhouse, 33 co-op; 10s and 20s are detached houses.
+// Used when Property Type is blank, which it is in Realty Toolkit exports.
+function styleType(s) {
+  const v = String(s || '').toLowerCase().trim();
+  if (!v) return null;
+  if (/town/.test(v)) return 'Townhouse';
+  if (/condo|co-?op/.test(v)) return 'Condo';
+  const n = parseInt(v, 10);
+  if (n === 32) return 'Townhouse';
+  if (n >= 30 && n <= 39) return 'Condo';
+  return 'Residential';
+}
+function normType(s, style) {
   const v = String(s || '').toLowerCase();
+  if (!v.trim() && style) return styleType(style) || 'Residential';
   if (/town/.test(v)) return 'Townhouse';
   if (/condo/.test(v)) return 'Condo';
   if (!v) return 'Residential';
@@ -115,7 +129,7 @@ function ingest(text, name, isSample) {
     const rec = {
       i, mls: get(r, 'mls') || 'Row ' + (i + 2), addr: get(r, 'addr') || ['stnum', 'stdir', 'stname', 'stsuf', 'stpost'].map((k) => String(get(r, k) || '').trim()).filter(Boolean).join(' ') + (String(get(r, 'unit') || '').trim() ? ' #' + String(get(r, 'unit')).trim() : '') || '(no address)', status, rawStatus: get(r, 'status'),
       zip: String(get(r, 'zip') || '').trim().slice(0, 5) || 'n/a', nb: (() => { const c = String(get(r, 'community') || '').replace(/[<>&"'`]/g, '').trim(), city = String(get(r, 'city') || '').trim(); return !c || (city && c.toLowerCase() === city.toLowerCase()) ? 'Unassigned' : c; })(),
-      type: normType(get(r, 'type')), list: toNum(get(r, 'list')), orig: toNum(get(r, 'orig')), sold: toNum(get(r, 'sold')),
+      type: normType(get(r, 'type'), get(r, 'style')), style: String(get(r, 'style') || '').trim(), list: toNum(get(r, 'list')), orig: toNum(get(r, 'orig')), sold: toNum(get(r, 'sold')),
       ld: toDate(get(r, 'ld')), pd: toDate(get(r, 'pd')), sd: toDate(get(r, 'sd')), dom: toNum(get(r, 'dom')), sq,
       lot: toNum(get(r, 'lot')), bd: toNum(get(r, 'bd')), ba: toNum(get(r, 'ba')), yb: toNum(get(r, 'yb'))
     };
@@ -130,7 +144,8 @@ function ingest(text, name, isSample) {
   S.zips = Object.entries(zc).sort((a, b) => b[1] - a[1]).map((e) => ({ zip: e[0], n: e[1] }));
   S.zip = S.zips[0] ? S.zips[0].zip : '';
   S.all = recs; S.hasLot = 'lot' in map; S.mapping = map; S.isSample = isSample; S.fileName = name; S.ignored = ignored;
-  S.missingOptional = ['orig', 'pd', 'type', 'zip'].filter((k) => !(k in map));
+  S.missingOptional = ['orig', 'pd', 'type', 'zip'].filter((k) => !(k in map) && !(k === 'type' && 'style' in map));
+  S.typeFrom = recs.some((r) => r.style) && !grid.slice(1).some((r) => String(get(r, 'type') || '').trim()) ? 'style' : 'type';
   S.typesPresent = CATS.filter((t) => recs.some((r) => cat(r) === t));
   S.types = new Set(S.typesPresent); S.smallOff = false;
   S.agents = new Map();
@@ -163,12 +178,14 @@ function flagPrices(recs) {
       r.flag = { kind: 'price', ratio: rl, why: `Sold at ${pct(rl, 0)} of list price` + (g ? `; ${g.why} (${money0(g.v)}?)` : ''), guess: g };
     }
   });
-  const byZip = {};
-  sold.filter((r) => !r.flag && r.sq > 0).forEach((r) => { (byZip[r.zip] = byZip[r.zip] || []).push(r.sold0 / r.sq); });
-  const zMed = {}; Object.entries(byZip).forEach(([z, v]) => { zMed[z] = median(v); });
-  sold.filter((r) => !r.flag && r.sq > 0 && zMed[r.zip]).forEach((r) => {
-    const x = r.sold0 / r.sq / zMed[r.zip];
-    if (x < TYPO.ppsfLo || x > TYPO.ppsfHi) r.flag = { kind: 'size', why: `$${Math.round(r.sold0 / r.sq).toLocaleString()} a sq ft on ${Math.round(r.sq).toLocaleString()} sq ft, vs a ${r.zip} median of $${Math.round(zMed[r.zip])}. Check the square footage.` };
+  // compare each sale with the median for its own ZIP and property type (needs 10 sales, else the ZIP median)
+  const byKey = {}, push = (k, v) => { (byKey[k] = byKey[k] || []).push(v); };
+  sold.filter((r) => !r.flag && r.sq > 0).forEach((r) => { push(r.zip, r.sold0 / r.sq); push(r.zip + '|' + r.type, r.sold0 / r.sq); });
+  const med = (r) => { const t = byKey[r.zip + '|' + r.type]; return t && t.length >= 10 ? [median(t), ({ Residential: 'house', Townhouse: 'townhouse', Condo: 'condo' })[r.type] || ''] : byKey[r.zip] ? [median(byKey[r.zip]), ''] : [NaN, '']; };
+  sold.filter((r) => !r.flag && r.sq > 0).forEach((r) => {
+    const [m, lab] = med(r); if (!Number.isFinite(m)) return;
+    const x = r.sold0 / r.sq / m;
+    if (x < TYPO.ppsfLo || x > TYPO.ppsfHi) r.flag = { kind: 'size', why: `$${Math.round(r.sold0 / r.sq).toLocaleString()} a sq ft on ${Math.round(r.sq).toLocaleString()} sq ft, vs a ${r.zip}${lab ? ' ' + lab : ''} median of $${Math.round(m)}. Check the square footage.` };
   });
 }
 const fixKey = (r) => r.mls + '|' + r.addr;
@@ -640,7 +657,7 @@ function renderValidation(rs) {
     <span class="item">${st.Active} active, ${st.Pending} pending, ${st.Sold} sold, ${st.Expired} expired</span>
     <span class="item muted">${fmtDate(minD)} to ${fmtDate(S.asOf)}</span>
     <span class="item"><span class="pill ${fresh[0]}" data-testid="status-freshness">${fresh[1]}</span></span>
-    <span class="item types">${S.typesPresent.map((t) => `<label${t === 'Small lot' ? ` title="Lots under ${AR.minLot.toLocaleString()} sq ft, counted as their own group"` : ''}><input type="checkbox" data-type="${t}" ${S.types.has(t) ? 'checked' : ''} data-testid="checkbox-type-${t.toLowerCase().replace(/\s+/g, '-')}"/>${CAT_LABEL[t]}${t === 'Small lot' ? ` <span class="muted">(lots under ${AR.minLot.toLocaleString()} sq ft)</span>` : ''}</label>`).join('')}</span>
+    <span class="item types">${S.typesPresent.map((t) => `<label${t === 'Small lot' ? ` title="Lots under ${AR.minLot.toLocaleString()} sq ft, counted as their own group"` : ''}><input type="checkbox" data-type="${t}" ${S.types.has(t) ? 'checked' : ''} data-testid="checkbox-type-${t.toLowerCase().replace(/\s+/g, '-')}"/>${CAT_LABEL[t]}${t === 'Small lot' ? ` <span class="muted">(lots under ${AR.minLot.toLocaleString()} sq ft)</span>` : ''}</label>`).join('')}${S.typeFrom === 'style' ? (() => { const zr = S.all.filter((r) => r.zip === S.zip && !excluded(r)), c = (t) => zr.filter((r) => cat(r) === t).length; return `<span class="muted" data-testid="text-type-source" title="Property Type is blank in this export, so each listing is sorted by its NWMLS Style Code: 30, 31 and 34 are condos, 32 is a townhouse, the rest are detached houses.">Sorted by Style Code: ${c('Residential')} houses, ${c('Townhouse')} townhouses, ${c('Condo')} condos${c('Small lot') ? `, ${c('Small lot')} small lot` : ''}.</span>`; })() : ''}</span>
     ${tyHtml}${warns.map((w) => `<span class="item"><span class="pill warn">Check</span>${esc(w)}</span>`).join('')}`;
   if ($('#review-typos')) $('#review-typos').onclick = openFixes;
   $('#zip-select').onchange = (e) => { S.zip = e.target.value; S.selected = []; S.nb = null; render(); };
