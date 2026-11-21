@@ -120,7 +120,7 @@ function ingest(text, name, isSample) {
       lot: toNum(get(r, 'lot')), bd: toNum(get(r, 'bd')), ba: toNum(get(r, 'ba')), yb: toNum(get(r, 'yb'))
     };
     if (!Number.isFinite(rec.orig)) rec.orig = rec.list;
-    rec.sold0 = rec.sold;
+    rec.sold0 = rec.sold; rec.sq0 = rec.sq; rec.nb0 = rec.nb; rec.zip0 = rec.zip;
     rec.ppsf = rec.status === 'Sold' && sq > 0 ? rec.sold / sq : NaN;
     rec.ratio = rec.status === 'Sold' && rec.list > 0 ? rec.sold / rec.list : NaN;
     rec.cut = rec.orig > rec.list * 1.001;
@@ -136,7 +136,7 @@ function ingest(text, name, isSample) {
   S.agents = new Map();
   grid.slice(1).forEach((r) => ['la', 'sa'].forEach((k) => { const key = agentKey(get(r, k)); if (key) S.agents.set(key, (S.agents.get(key) || 0) + 1); }));
   S.selected = []; S.answers = {}; S.nb = null;
-  S.fixes = S.fixes || {}; flagPrices(recs); applyFixes();
+  S.fixes = S.fixes || {}; flagPrices(recs); flagData(recs); applyFixes();
   render();
   if (!isSample && !profileReady()) openProfile(null, 'New export loaded. Add your name and contact details so your reports carry your byline.');
 }
@@ -174,7 +174,10 @@ function flagPrices(recs) {
 const fixKey = (r) => r.mls + '|' + r.addr;
 function applyFixes() {
   S.all.forEach((r) => {
-    const f = S.fixes[fixKey(r)];
+    const f = S.fixes[fixKey(r)], c = S.fixes['c|' + fixKey(r)] || {};
+    r.sq = c.action === 'size' && c.value > 0 ? c.value : r.sq0;
+    r.nb = c.action === 'nb' && c.value ? c.value : r.nb0;
+    r.zip = c.action === 'move' && c.value ? c.value : r.zip0;
     r.sold = f && f.action === 'fix' && f.value > 0 ? f.value : r.sold0;
     r.ppsf = r.status === 'Sold' && r.sq > 0 ? r.sold / r.sq : NaN;
     r.ratio = r.status === 'Sold' && r.list > 0 ? r.sold / r.list : NaN;
@@ -182,9 +185,49 @@ function applyFixes() {
 }
 // a sale is left out when the user chose Leave out, or when a price flag has not been reviewed yet
 function excluded(r) {
+  if ((S.fixes['c|' + fixKey(r)] || {}).action === 'drop') return true;
   const f = S.fixes[fixKey(r)];
   if (f) return f.action === 'drop';
   return !!(r.flag && r.flag.kind === 'price');
+}
+// ---------- data checks ----------
+// Neighborhood names the MLS uses and the ZIPs they usually sit in (north and northeast Seattle).
+// Only used to flag a listing for review, never to move or drop it automatically.
+const NB_ZIPS = {
+  'ravenna': ['98115', '98105'], 'roosevelt': ['98115', '98105'], 'bryant': ['98115', '98105'], 'view ridge': ['98115'], 'sand point': ['98115'],
+  'laurelhurst': ['98105'], 'university district': ['98105'], 'windermere': ['98115'], 'hawthorne hills': ['98115'], 'wedgwood': ['98115', '98125'],
+  'maple leaf': ['98115', '98125'], 'green lake': ['98103', '98115'], 'greenwood': ['98103', '98117', '98133'], 'bitter lake': ['98133'], 'broadview': ['98177', '98133'],
+  'haller lake': ['98133', '98125'], 'northgate': ['98125', '98133'], 'lake city': ['98125'], 'pinehurst': ['98125'], 'olympic hills': ['98125'],
+  'victory heights': ['98125'], 'cedar park': ['98125', '98155'], 'meadowbrook': ['98125', '98115'], 'matthews beach': ['98125', '98115'], 'jackson park': ['98125', '98155']
+};
+const homeZips = (nb) => NB_ZIPS[String(nb || '').toLowerCase()] || null;
+// stray ZIP: a ZIP with under 5% of the file's rows (or a blank ZIP) is likely a typo or an edge listing
+function strayZips(recs) {
+  const c = {}; recs.forEach((r) => { c[r.zip0] = (c[r.zip0] || 0) + 1; });
+  return new Set(Object.keys(c).filter((z) => z === 'n/a' || c[z] / recs.length < 0.05));
+}
+function flagData(recs) {
+  const stray = strayZips(recs);
+  recs.forEach((r) => {
+    r.chk = null;
+    if (stray.has(r.zip0) && recs.length > 20) r.chk = { kind: 'zip', why: r.zip0 === 'n/a' ? 'No ZIP code on this listing.' : `ZIP ${r.zip0} is only on ${recs.filter((x) => x.zip0 === r.zip0).length} row${recs.filter((x) => x.zip0 === r.zip0).length === 1 ? '' : 's'} in this file. Set aside unless you include it.` };
+    else if (!(r.sq0 > 0)) r.chk = { kind: 'nosize', why: 'No square footage, so it is left out of price per square foot.' };
+    else if (r.nb0 === 'Unassigned') r.chk = { kind: 'nonb', why: 'No neighborhood listed (blank or just the city name). Counted in ZIP totals but not in any neighborhood.' };
+    else { const hz = homeZips(r.nb0); if (hz && !hz.includes(r.zip0)) r.chk = { kind: 'nbzip', why: `${r.nb0} is usually in ${hz.join(' or ')}, not ${r.zip0}. Check the neighborhood or the ZIP.` }; }
+  });
+}
+const CHK_LABEL = { zip: 'Listings from other ZIPs', nosize: 'No square footage', nonb: 'No neighborhood listed', nbzip: 'Neighborhood usually in another ZIP' };
+const CHK_NOTE = {
+  zip: 'These rows are set aside by default. Include one in this ZIP if its ZIP code is a typo.',
+  nosize: 'Kept in counts and prices, left out of price per square foot. Enter the size if you have it.',
+  nonb: 'Kept in ZIP totals. Assign a neighborhood to include it in the neighborhood breakout.',
+  nbzip: 'Kept as is unless you change it. The MLS neighborhood name and the ZIP disagree, which usually means one of them is off.'
+};
+function dataSummary(zip) {
+  const mine = S.all.filter((r) => r.chk && (r.chk.kind === 'zip' ? r.zip0 !== zip : r.zip0 === zip));
+  const by = {}; mine.forEach((r) => { (by[r.chk.kind] = by[r.chk.kind] || []).push(r); });
+  const reviewed = mine.filter((r) => S.fixes['c|' + fixKey(r)]).length;
+  return { all: mine, by, reviewed };
 }
 function typoSummary(zip) {
   const fl = S.all.filter((r) => r.flag && r.zip === zip);
@@ -198,13 +241,16 @@ function openFixes() {
     const f = S.fixes[fixKey(r)] || {}, isP = r.flag.kind === 'price';
     const act = f.action || (isP ? 'drop' : 'keep');
     return `<tr data-key="${esc(fixKey(r))}"><td>${r.i + 2}</td><td>${esc(r.addr)}<div class="muted">${esc(r.nb)} · #${esc(r.mls)}</div></td><td>${money0(r.list)}${r.orig && r.orig !== r.list ? `<div class="muted">orig ${money0(r.orig)}</div>` : ''}</td><td><b>${money0(r.sold0)}</b></td><td class="fix-why">${esc(r.flag.why)}</td>
-      <td><select data-testid="select-fix-${esc(r.mls)}">${isP ? '' : `<option value="keep" ${act === 'keep' ? 'selected' : ''}>Keep</option>`}<option value="fix" ${act === 'fix' ? 'selected' : ''}>Fix price</option><option value="drop" ${act === 'drop' ? 'selected' : ''}>Leave out</option>${isP ? `<option value="keep" ${act === 'keep' ? 'selected' : ''}>Keep, it is real</option>` : ''}</select>
+      <td><select class="fix-act" data-testid="select-fix-${esc(r.mls)}">${isP ? '' : `<option value="keep" ${act === 'keep' ? 'selected' : ''}>Keep</option>`}<option value="fix" ${act === 'fix' ? 'selected' : ''}>Fix price</option><option value="drop" ${act === 'drop' ? 'selected' : ''}>Leave out</option>${isP ? `<option value="keep" ${act === 'keep' ? 'selected' : ''}>Keep, it is real</option>` : ''}</select>
       <input class="fix-val" inputmode="numeric" placeholder="${r.flag.guess ? 'Maybe ' + r.flag.guess.v.toLocaleString('en-US') : 'Corrected price'}" value="${f.value || ''}" ${act === 'fix' ? '' : 'hidden'} data-testid="input-fix-${esc(r.mls)}"/></td></tr>`;
   };
   const tbl = (rs) => `<div class="table-wrap"><table class="data fix-table"><thead><tr><th>Row</th><th>Address</th><th>List</th><th>Sold</th><th>Why flagged</th><th>Action</th></tr></thead><tbody>${rs.map(row).join('')}</tbody></table></div>`;
   $('#fix-body').innerHTML = (t.price.length ? `<h3 class="fix-h">Sold prices that look like typos (${t.price.length})</h3><p class="muted">These sales are left out of every number until you fix or confirm them. Row numbers match your spreadsheet.</p>${tbl(t.price)}` : '')
-    + (t.size.length ? `<h3 class="fix-h">Unusual price per square foot (${t.size.length})</h3><p class="muted">Usually a square footage error, sometimes a real tiny home or teardown. Kept in the numbers unless you leave them out.</p>${tbl(t.size)}` : '');
-  $$('#fix-body select').forEach((sel) => sel.onchange = () => { const i = sel.parentElement.querySelector('.fix-val'); i.hidden = sel.value !== 'fix'; if (!i.hidden) i.focus(); });
+    + (t.size.length ? `<h3 class="fix-h">Unusual price per square foot (${t.size.length})</h3><p class="muted">Usually a square footage error, sometimes a real tiny home or teardown. Kept in the numbers unless you leave them out.</p>${tbl(t.size)}` : '')
+    + dataSections();
+  $$('#fix-body tr[data-key] select.fix-act').forEach((sel) => sel.onchange = () => { const i = sel.parentElement.querySelector('.fix-val'); i.hidden = sel.value !== 'fix'; if (!i.hidden) i.focus(); });
+  $$('#fix-body tr[data-ckey] select.chk-act').forEach((sel) => sel.onchange = () => { const i = sel.parentElement.querySelector('.chk-val'); if (i) { i.hidden = !['size', 'nb', 'move'].includes(sel.value); if (!i.hidden) i.focus(); } });
+  if (!t.price.length && !t.size.length && !dataSummary(S.zip).all.length) $('#fix-body').innerHTML = '<p>No typos or data problems found in this ZIP.</p>';
   $('#fix-err').textContent = '';
   d.showModal();
 }
@@ -218,10 +264,37 @@ function saveFixes() {
     else if (a === 'drop') next[tr.dataset.key] = { action: 'drop' };
     else if (isP) next[tr.dataset.key] = { action: 'keep' };
   });
+  $$('#fix-body tr[data-ckey]').forEach((tr) => {
+    const a = tr.querySelector('select.chk-act').value, inp = tr.querySelector('.chk-val'), raw = inp ? String(inp.value).trim() : '';
+    if (a === 'size') { const v = Math.round(Number(raw.replace(/[,\s]/g, ''))); if (!(v > 0)) err = 'Enter the square footage for each row set to Enter size.'; next[tr.dataset.ckey] = { action: 'size', value: v }; }
+    else if (a === 'nb') { if (!raw) err = 'Pick a neighborhood for each row set to Assign neighborhood.'; next[tr.dataset.ckey] = { action: 'nb', value: raw }; }
+    else if (a === 'move') next[tr.dataset.ckey] = { action: 'move', value: S.zip };
+    else if (a === 'drop') next[tr.dataset.ckey] = { action: 'drop' };
+    else if (a === 'keep') next[tr.dataset.ckey] = { action: 'keep' };
+  });
   if (err) { $('#fix-err').textContent = err; return; }
   S.all.filter((r) => r.flag && r.zip === S.zip).forEach((r) => { delete S.fixes[fixKey(r)]; });
+  dataSummary(S.zip).all.forEach((r) => { delete S.fixes['c|' + fixKey(r)]; });
   Object.assign(S.fixes, next); applyFixes(); $('#fix-dlg').close(); render();
-  const t = typoSummary(S.zip); toast(`Saved. ${t.fixed} price${t.fixed === 1 ? '' : 's'} fixed, ${t.dropped} sale${t.dropped === 1 ? '' : 's'} left out.`);
+  const t = typoSummary(S.zip), dd = dataSummary(S.zip); toast(`Saved. ${t.fixed} price${t.fixed === 1 ? '' : 's'} fixed, ${t.dropped} sale${t.dropped === 1 ? '' : 's'} left out, ${dd.reviewed} data check${dd.reviewed === 1 ? '' : 's'} reviewed.`);
+}
+function dataSections() {
+  const d = dataSummary(S.zip);
+  const nbs = [...new Set(S.all.filter((r) => r.zip0 === S.zip && r.nb0 !== 'Unassigned').map((r) => r.nb0))].sort();
+  const price = (r) => r.status === 'Sold' ? money0(r.sold0) : money0(r.list);
+  const row = (r) => {
+    const k = 'c|' + fixKey(r), f = S.fixes[k] || {}, kind = r.chk.kind;
+    const def = kind === 'zip' ? 'drop' : 'keep', act = f.action || def;
+    const opt = (v, l) => `<option value="${v}" ${act === v ? 'selected' : ''}>${l}</option>`;
+    let opts = '', input = '';
+    if (kind === 'zip') { opts = opt('drop', 'Set aside') + opt('move', 'Include in ' + S.zip); }
+    else if (kind === 'nosize') { opts = opt('keep', 'Keep') + opt('size', 'Enter size') + opt('drop', 'Leave out'); input = `<input class="chk-val" inputmode="numeric" placeholder="Square feet" value="${f.action === 'size' ? f.value : ''}" ${act === 'size' ? '' : 'hidden'} data-testid="input-chk-${esc(r.mls)}"/>`; }
+    else { opts = opt('keep', kind === 'nonb' ? 'Keep unassigned' : 'Keep') + opt('nb', 'Assign neighborhood') + opt('drop', 'Leave out'); input = `<select class="chk-val" ${act === 'nb' ? '' : 'hidden'} data-testid="input-chk-${esc(r.mls)}"><option value="">Choose…</option>${nbs.filter((n) => n !== r.nb0).map((n) => `<option ${f.value === n ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`; }
+    return `<tr data-ckey="${esc(k)}"><td>${r.i + 2}</td><td>${esc(r.addr)}<div class="muted">${esc(r.nb0 === 'Unassigned' ? 'No neighborhood' : r.nb0)} · ${esc(r.zip0)} · #${esc(r.mls)}</div></td><td>${esc(r.status)}</td><td>${price(r)}</td><td class="fix-why">${esc(r.chk.why)}</td>
+      <td><select class="chk-act" data-testid="select-chk-${esc(r.mls)}">${opts}</select>${input}</td></tr>`;
+  };
+  const tbl = (rs) => `<div class="table-wrap"><table class="data fix-table"><thead><tr><th>Row</th><th>Address</th><th>Status</th><th>Price</th><th>Why flagged</th><th>Action</th></tr></thead><tbody>${rs.map(row).join('')}</tbody></table></div>`;
+  return ['zip', 'nbzip', 'nonb', 'nosize'].filter((k) => d.by[k]).map((k) => `<h3 class="fix-h">${CHK_LABEL[k]} (${d.by[k].length})</h3><p class="muted">${CHK_NOTE[k]}</p>${tbl(d.by[k])}`).join('');
 }
 
 function showError(msg) {
@@ -557,7 +630,9 @@ function renderValidation(rs) {
   S.missingOptional.forEach((k) => warns.push(`No ${LABELS[k]} column` + (k === 'orig' ? ', price cut signals off.' : '.')));
   if (S.ignored) warns.push(`${S.ignored} rows with other statuses ignored.`);
   const ty = typoSummary(S.zip);
-  const tyHtml = !ty.fl.length ? '' : `<span class="item" data-testid="status-typo"><span class="pill ${ty.open ? 'bad' : 'ok'}">${ty.open ? 'Typo check' : 'Reviewed'}</span>${ty.open ? `${ty.open} sold price${ty.open === 1 ? '' : 's'} look like typos, left out until reviewed.` : `Typo check: ${ty.fixed} fixed, ${ty.dropped} left out.`}${ty.size.length ? ` <span class="muted">${ty.size.length} unusual $/sq ft.</span>` : ''} <button class="btn ghost sm" id="review-typos" data-testid="button-review-typos">Review</button></span>`;
+  const dd = dataSummary(S.zip), ddOpen = dd.all.length - dd.reviewed;
+  const ddTxt = Object.entries(dd.by).map(([k, v]) => `${v.length} ${({ zip: 'from other ZIPs', nosize: 'with no square footage', nonb: 'with no neighborhood', nbzip: 'with a neighborhood from another ZIP' })[k]}`).join(', ');
+  const tyHtml = !ty.fl.length && !dd.all.length ? '' : !ty.fl.length ? `<span class="item" data-testid="status-typo"><span class="pill ${ddOpen ? 'warn' : 'ok'}">${ddOpen ? 'Data check' : 'Reviewed'}</span>${ddOpen ? `${ddOpen} listing${ddOpen === 1 ? '' : 's'} to review: ${ddTxt}.` : `Data check: ${dd.reviewed} reviewed.`} <button class="btn ghost sm" id="review-typos" data-testid="button-review-typos">Review</button></span>` : `<span class="item" data-testid="status-typo"><span class="pill ${ty.open ? 'bad' : ddOpen ? 'warn' : 'ok'}">${ty.open ? 'Typo check' : ddOpen ? 'Data check' : 'Reviewed'}</span>${ty.open ? `${ty.open} sold price${ty.open === 1 ? '' : 's'} look like typos, left out until reviewed.` : `Typo check: ${ty.fixed} fixed, ${ty.dropped} left out.`}${ty.size.length ? ` <span class="muted">${ty.size.length} unusual $/sq ft.</span>` : ''}${dd.all.length ? ` <span class="muted">${ddOpen ? `${ddOpen} data check${ddOpen === 1 ? '' : 's'} to review: ${ddTxt}.` : `${dd.reviewed} data checks reviewed.`}</span>` : ''} <button class="btn ghost sm" id="review-typos" data-testid="button-review-typos">Review</button></span>`;
   $('#validation').innerHTML = `
     <span class="item"><span class="pill ok" data-testid="status-parsed">Parsed</span>${esc(S.fileName)}: ${S.all.length} rows</span>
     <span class="item">ZIP <select id="zip-select" data-testid="select-zip">${S.zips.map((z) => `<option value="${esc(z.zip)}" ${z.zip === S.zip ? 'selected' : ''}>${esc(z.zip)} (${z.n})</option>`).join('')}</select>${others ? `<span class="muted">${others} other-ZIP rows set aside</span>` : ''}</span>
@@ -976,7 +1051,7 @@ function areaCopy(M) {
 
 function lotNote() { return AR.lotFilter && S.hasLot ? `, lots ${AR.minLot.toLocaleString()} sq ft and up` : ''; }
 function sourceLine(M) {
-  return `Source: ${AR.source}${S.isSample ? ' (fictional sample data)' : ''}. ${S.zip}${lotNote()}. Sold listings closed ${M.audit.from ? fmtDate(M.audit.from) : ''} to ${fmtDate(S.asOf)}; active and pending as of ${fmtDate(S.asOf)}. Medians shown. Only neighborhoods with ${AR.minRank} or more sales are ranked; smaller counts are shown but not ranked.${M.smallLot ? ` Homes on lots under ${AR.minLot.toLocaleString()} sq ft are reported as their own group; medians and averages are figured separately for each group.` : ''}${(() => { const t = typoSummary(S.zip); return t.fixed || t.dropped ? ` Typo check: ${t.fixed} sale price${t.fixed === 1 ? '' : 's'} corrected and ${t.dropped} sale${t.dropped === 1 ? '' : 's'} left out.` : ''; })()}`;
+  return `Source: ${AR.source}${S.isSample ? ' (fictional sample data)' : ''}. ${S.zip}${lotNote()}. Sold listings closed ${M.audit.from ? fmtDate(M.audit.from) : ''} to ${fmtDate(S.asOf)}; active and pending as of ${fmtDate(S.asOf)}. Medians shown. Only neighborhoods with ${AR.minRank} or more sales are ranked; smaller counts are shown but not ranked.${M.smallLot ? ` Homes on lots under ${AR.minLot.toLocaleString()} sq ft are reported as their own group; medians and averages are figured separately for each group.` : ''}${(() => { const t = typoSummary(S.zip); const d = dataSummary(S.zip), ch = d.all.filter((r) => { const c = S.fixes['c|' + fixKey(r)]; return c && c.action !== 'keep' && !(r.chk.kind === 'zip' && c.action === 'drop'); }).length; return (t.fixed || t.dropped ? ` Typo check: ${t.fixed} sale price${t.fixed === 1 ? '' : 's'} corrected and ${t.dropped} sale${t.dropped === 1 ? '' : 's'} left out.` : '') + (ch ? ` Data check: ${ch} listing${ch === 1 ? '' : 's'} corrected or left out (size, neighborhood or ZIP).` : ''); })()}`;
 }
 function nbLine(n) {
   const m = mark(n); return `${n.name}${m ? ' ' + m : ''}: ${n.sold} sold, ${n.active} active, ${n.pending} pending; ${Number.isFinite(n.soldPpsf) ? d$(n.soldPpsf) + ' per sq ft sold' : 'no sales'}${Number.isFinite(n.soldDom) ? ', ' + num(n.soldDom) + ' days on market' : ''}${n.sold && n.thin && n.name.indexOf(' total') < 0 ? ' (not ranked, under ' + AR.minRank + ' sales)' : ''}`;
