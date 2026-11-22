@@ -1672,9 +1672,64 @@ function exportSession() {
   dl(new Blob([JSON.stringify({ app: 'micro-market-studio', version: 1, saved: new Date().toISOString(), settings: AR, queue: S.queue, memory: S.memory, fixes: S.fixes }, null, 2)], { type: 'application/json' }), `micro-market-studio-session-${isoDay(new Date())}.json`);
   toast('Session file saved. Load it next time to restore your queue, memory and report settings.');
 }
+// Session files are checked field by field before anything is applied.
+// Only known settings are kept, numbers must be in range, text is trimmed and capped,
+// and anything unexpected is skipped rather than loaded.
+const SESSION_MAX_BYTES = 5 * 1024 * 1024;
+function cleanSession(j) {
+  let skipped = 0;
+  const isObj = (o) => o && typeof o === 'object' && !Array.isArray(o);
+  const txt = (v, max = 200) => typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim().slice(0, max) : null;
+  const day = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  const num = (v, lo, hi) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null;
+  const settings = {};
+  if (isObj(j.settings)) {
+    const st = j.settings;
+    const pick = (k, v) => { if (v === null || v === undefined) { if (k in st) skipped++; } else settings[k] = v; };
+    pick('window', [60, 90, 120].includes(st.window) ? st.window : null);
+    pick('minRank', [3, 5, 6, 8].includes(st.minRank) ? st.minRank : null);
+    pick('lotFilter', typeof st.lotFilter === 'boolean' ? st.lotFilter : null);
+    pick('minLot', num(st.minLot, 500, 20000));
+    for (const k of ['city', 'issue', 'byline', 'name', 'role', 'firm', 'license', 'source']) pick(k, txt(st[k], k === 'byline' || k === 'source' ? 200 : 120));
+    pick('phone', (() => { const v = txt(st.phone, 40); return v !== null && /^[\d\s()+.\-x]*$/i.test(v) ? v : null; })());
+    pick('email', (() => { const v = txt(st.email, 120); return v !== null && (v === '' || /^[^\s@<>"']+@[^\s@<>"']+\.[^\s@<>"']+$/.test(v)) ? v : null; })());
+    pick('web', (() => { const v = txt(st.web, 200); if (v === null) return null; if (v === '') return ''; const w = /^https?:\/\//i.test(v) ? v : /^[a-z0-9][^\s:<>"']*$/i.test(v) ? 'https://' + v : null; try { return w && new URL(w).protocol.startsWith('http') ? v : null; } catch { return null; } })());
+  }
+  const queue = [];
+  for (const q of (Array.isArray(j.queue) ? j.queue : []).slice(0, 500)) {
+    if (!isObj(q) || !txt(q.headline)) { skipped++; continue; }
+    queue.push({ headline: txt(q.headline, 300), format: txt(q.format, 60) || '', lens: txt(q.lens, 20) || 'all', slot: day(q.slot) || '', slotLabel: txt(q.slotLabel, 60) || 'unscheduled',
+      status: q.status === 'Published' ? 'Published' : 'Queued', text: txt(q.text, 20000) || '',
+      sigs: (Array.isArray(q.sigs) ? q.sigs : []).slice(0, 10).filter(isObj).map((x) => ({ type: txt(x.type, 40) || '', scope: txt(x.scope, 80) || '', headline: txt(x.headline, 300) || '', memValue: num(x.memValue, -1e9, 1e9), memUnit: txt(x.memUnit, 20) || '' })) });
+  }
+  let memory = null;
+  if (Array.isArray(j.memory)) {
+    memory = [];
+    for (const m of j.memory.slice(0, 1000)) {
+      if (!isObj(m) || !day(m.date) || !txt(m.type) || !txt(m.headline)) { skipped++; continue; }
+      memory.push({ date: m.date, type: txt(m.type, 40), scope: txt(m.scope, 80) || 'ZIP', headline: txt(m.headline, 300), value: num(m.value, -1e9, 1e9), unit: txt(m.unit, 20) || '', format: txt(m.format, 60) || '' });
+    }
+  }
+  let fixes = null;
+  if (isObj(j.fixes)) {
+    fixes = {};
+    for (const [k, f] of Object.entries(j.fixes).slice(0, 5000)) {
+      const a = isObj(f) ? f.action : null;
+      if (typeof k !== 'string' || k.length > 200) { skipped++; continue; }
+      if (a === 'keep' || a === 'drop') fixes[k] = { action: a };
+      else if (a === 'fix' && num(f.value, 1000, 1e9) !== null) fixes[k] = { action: a, value: f.value };
+      else if (a === 'size' && num(f.value, 50, 100000) !== null) fixes[k] = { action: a, value: Math.round(f.value) };
+      else if (a === 'nb' && txt(f.value, 80)) fixes[k] = { action: a, value: txt(f.value, 80) };
+      else if (a === 'move' && typeof f.value === 'string' && /^\d{5}$/.test(f.value)) fixes[k] = { action: a, value: f.value };
+      else skipped++;
+    }
+  }
+  return { settings, queue, memory, fixes, skipped };
+}
 function importSession(f) {
+  if (f.size > SESSION_MAX_BYTES) { toast('That session file is too large to be a Micro Market Studio session.'); return; }
   const r = new FileReader();
-  r.onload = () => { try { const j = JSON.parse(String(r.result)); if (j.app !== 'micro-market-studio') throw 0; Object.assign(AR, j.settings || {}); updateProfileChip(); S.queue = j.queue || []; S.memory = j.memory || S.memory; if (j.fixes) { S.fixes = j.fixes; if (S.all) applyFixes(); } render(); toast(`Session restored: ${S.queue.length} queued, ${S.memory.length} in memory.`); } catch { toast('That is not a Micro Market Studio session file.'); } };
+  r.onload = () => { try { const j = JSON.parse(String(r.result)); if (!j || j.app !== 'micro-market-studio') throw 0; const c = cleanSession(j); Object.assign(AR, c.settings); updateProfileChip(); S.queue = c.queue; if (c.memory) S.memory = c.memory; if (c.fixes) { S.fixes = c.fixes; if (S.all) applyFixes(); } render(); toast(`Session restored: ${S.queue.length} queued, ${S.memory.length} in memory.${c.skipped ? ` ${c.skipped} unreadable ${c.skipped === 1 ? 'entry was' : 'entries were'} skipped.` : ''}`); } catch { toast('That is not a Micro Market Studio session file.'); } };
   r.readAsText(f);
 }
 
@@ -1718,7 +1773,10 @@ const drop = $('#drop');
 ['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', (e) => { const f = e.dataTransfer.files[0]; if (f) readFile(f); });
 $('#file').onchange = (e) => { const f = e.target.files[0]; if (f) readFile(f); e.target.value = ''; };
-function readFile(f) { const r = new FileReader(); r.onload = () => ingest(String(r.result), f.name, /^98125-sample( ?\(\d+\))?\.csv$/i.test(f.name)); r.readAsText(f); }
+const CSV_WARN_BYTES = 25 * 1024 * 1024;
+function readFile(f) {
+  if (f.size > CSV_WARN_BYTES && !confirm(`This file is ${(f.size / 1048576).toFixed(0)} MB. Large exports can slow down or freeze the page. A Realty Toolkit export for one ZIP over 730 days is usually under 5 MB. Load it anyway?`)) return;
+  const r = new FileReader(); r.onload = () => ingest(String(r.result), f.name, /^98125-sample( ?\(\d+\))?\.csv$/i.test(f.name)); r.readAsText(f); }
 async function loadSample() {
   try { const res = await fetch('data/98125-sample.csv'); if (!res.ok) throw new Error(res.status); ingest(await res.text(), '98125-sample.csv', true); }
   catch (e) { showError('Could not load the sample file.'); }
