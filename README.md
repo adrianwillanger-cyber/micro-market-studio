@@ -2,7 +2,7 @@
 
 Static browser app that turns a Realty Toolkit / NWMLS CSV export into one-ZIP social market reports. Everything runs in the browser; no data leaves the page.
 
-**Open the app:** https://adrianwillanger-cyber.github.io/micro-market-studio/studio.html (also at https://micro-market-studio.pplx.app/studio.html)
+**Open the app:** https://micromarketstudio.com/studio.html (also at https://micro-market-studio.pplx.app/studio.html)
 
 ## Tabs
 Signal board, What changed, Price bands, Area report, Queue
@@ -54,4 +54,4 @@ The Area report's Download web page button saves one self-contained HTML file in
 
 ## Product page
 
-`platform.html` is the Micro Market Studio landing page: how the studio turns one ZIP of MLS data into sourced value reports, the KPIs it tracks for each stakeholder, the human review steps, and the beta call for five brokers. Live at https://adrianwillanger-cyber.github.io/micro-market-studio/platform.html
+`platform.html` is the Micro Market Studio landing page: how the studio turns one ZIP of MLS data into sourced value reports, the KPIs it tracks for each stakeholder, the human review steps, and the beta call for five brokers. Live at https://micromarketstudio.com/platform.html
