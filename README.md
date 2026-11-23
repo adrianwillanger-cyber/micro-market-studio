@@ -2,7 +2,7 @@
 
 Static browser app that turns a Realty Toolkit / NWMLS CSV export into one-ZIP social market reports. Everything runs in the browser; no data leaves the page.
 
-**Open the app:** https://micromarketstudio.com/studio.html (also at https://micro-market-studio.pplx.app/studio.html)
+**Open the app:** https://micromarketstudio.com/ (also at https://micro-market-studio.pplx.app/)
 
 ## Tabs
 Signal board, What changed, Price bands, Area report, Queue
@@ -22,9 +22,10 @@ Signal board, What changed, Price bands, Area report, Queue
 - LinkedIn carousel: 8 slides (9 with the small lot slide) at 1080x1350 (Print carousel PDF with margins set to None, or Download slides as PNG)
 
 ## Files
-- `index.html`: client-facing 98125 market update page (the GitHub Pages home page)
+- `index.html`, `styles.css`, `app.js`: the app (the site home page)
+- `studio.html`: redirect from the old app address to the home page
+- `98125/index.html`: client-facing 98125 market update page, at https://micromarketstudio.com/98125/
 - `reports/98125-2026-11/`: charts, share image and one-page PDF used by that page
-- `studio.html`, `styles.css`, `app.js`: the app
 - `tools/merge_exports.py`: stack several exports into a longer sold window (newest copy of each listing wins)
 - `data/98125-sample.csv`, `gen_sample.py`: sample data
 
@@ -32,7 +33,7 @@ Signal board, What changed, Price bands, Area report, Queue
 ```
 python3 -m http.server 8765
 ```
-Then open http://localhost:8765/studio.html. Sessions are saved and loaded as a JSON file.
+Then open http://localhost:8765/. Sessions are saved and loaded as a JSON file.
 
 ## Charts in reports
 

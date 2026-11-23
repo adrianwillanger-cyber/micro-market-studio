@@ -13,8 +13,8 @@ const money = (n) => { if (!Number.isFinite(n)) return 'n/a'; if (n >= 1e6) retu
 const money0 = (n) => Number.isFinite(n) ? '$' + Math.round(n).toLocaleString('en-US') : '';
 const pct = (x, d = 0) => Number.isFinite(x) ? (x * 100).toFixed(d) + '%' : 'n/a';
 const num = (x, d = 0) => Number.isFinite(x) ? x.toFixed(d) : 'n/a';
-const fmtDate = (d) => d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
-const shortDate = (d) => d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+const fmtDate = (d) => d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '';
+const shortDate = (d) => d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : '';
 const isoDay = (d) => d.toISOString().slice(0, 10);
 
 function parseCSV(text) {
