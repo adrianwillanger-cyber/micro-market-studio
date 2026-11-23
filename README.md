@@ -49,3 +49,7 @@ The studio no longer ships with a built-in byline. When someone loads their own 
 ## Download web page
 
 The Area report's Download web page button saves one self-contained HTML file in the style of the client report page: dateline, headline, key figures, article text, inline charts, neighborhood table, small lot section, the user's contact block and the source line. Charts are embedded as SVG, so the file has no image dependencies; only the web fonts load from Google Fonts, with Georgia as the fallback. Upload it to any website or GitHub Pages, or open it straight from the computer. Like every report export, it waits for the user's details first.
+
+## Product page
+
+`platform.html` is the Micro Market Studio landing page: how the studio turns one ZIP of MLS data into sourced value reports, the KPIs it tracks for each stakeholder, the human review steps, and the beta call for five brokers. Live at https://adrianwillanger-cyber.github.io/micro-market-studio/platform.html
